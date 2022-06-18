@@ -4,7 +4,12 @@ LDFLAGS =
 
 SRC = argv.c \
 			 builtin.c \
-			 main.c
+			 exec.c \
+			 job.c \
+			 main.c \
+			 redirect.c \
+			 signal.c \
+			 wait.c
 OBJ = $(SRC:.c=.o)
 
 all: $(TARGET)

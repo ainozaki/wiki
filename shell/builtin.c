@@ -7,7 +7,7 @@
 
 #define CWD_SIZE_MAX 64
 
-static void do_cd(char** argv) {
+static void do_cd(char **argv) {
   if (!argv[1]) {
     printf("usage: cd <path>\n");
     return;
@@ -19,12 +19,14 @@ static void do_cd(char** argv) {
 }
 
 static void do_pwd() {
-  char* buf = malloc(CWD_SIZE_MAX);
+  char *buf = malloc(CWD_SIZE_MAX);
   printf("%s\n", getcwd(buf, CWD_SIZE_MAX));
   free(buf);
 }
 
-int execute_builtin(char** argv) {
+int execute_builtin(char **argv) {
+  int pid, jobid;
+
   if (!strncmp(argv[0], "cd", 3)) {
     do_cd(argv);
     return 0;
@@ -32,19 +34,26 @@ int execute_builtin(char** argv) {
     do_pwd();
     return 0;
   } else if (!strncmp(argv[0], "jobs", 5)) {
-    //show_jobs();
+    show_jobs();
     return 0;
   } else if (!strncmp(argv[0], "fg", 3)) {
-    //do_fg(argv);
-    return 0;
-  } else if (!strncmp(argv[0], "bg", 3)) {
-    //do_bg(argv);
-    return 0;
+    if (!argv[1]) {
+      fprintf(stderr, "usage: fg <jobid>\n");
+      return 1;
+    }
+    jobid = strtol(argv[1], NULL, 10);
+    pid = find_pid_from_jobid(jobid);
+    if (pid == -1) {
+      fprintf(stderr, "Cannot find specified jobid %d.\n", jobid);
+      return 1;
+    }
+    set_fg(pid);
   } else if (!strncmp(argv[0], "exit", 5)) {
     exit_flag = 1;
-		return 0;
+    exit(0);
   } else {
     /* Not built-in command */
     return 1;
   }
+  return 0;
 }
