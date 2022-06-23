@@ -74,7 +74,8 @@ static void job_state_to_string(enum job_state state, char *buff) {
 static char *command_to_string(char **command) {
   char *buff = malloc(30);
   char *ret = buff;
-  for (int i = 0; command[i]; i++) {
+	int i;
+  for (i = 0; command[i]; i++) {
     strcpy(buff, command[i]);
     buff += strlen(command[i]);
   }

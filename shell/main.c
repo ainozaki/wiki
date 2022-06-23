@@ -59,4 +59,5 @@ int main(int argc, char **argv) {
   // TODO: free argv_token
   printf("terminating shell...\n");
   free(prompt_buf);
+	return 0;
 }
