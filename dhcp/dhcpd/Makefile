@@ -5,7 +5,7 @@ SRC = main.c
 OBJ=$(SRC:.c=.o)
 DEP=$(SRC:.c=.d)
 
-TARGET = mydhcpc
+TARGET = mydhcpd
 
 all: $(TARGET)
 
@@ -18,7 +18,7 @@ $(TARGET): $(OBJ)
 -include $(DEP)
 
 run:
-	./$(TARGET) 192.168.64.2
+	./$(TARGET)
 
 format: $(SRC)
 	find ./ -type f -name "*.c" -or -name "*.h" | xargs clang-format -i
