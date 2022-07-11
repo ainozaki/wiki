@@ -1,7 +1,8 @@
-CFLAGS=-O2 -Wall -Wextra -I./include
+CFLAGS=-O2 -Wall -Wextra -I./include -I../common
 LDFLAGS=
 
-SRC = main.c
+SRC = main.c \
+			../common/dhcph.c
 OBJ=$(SRC:.c=.o)
 DEP=$(SRC:.c=.d)
 

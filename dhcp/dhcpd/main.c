@@ -6,6 +6,7 @@
 #include <sys/types.h>
 
 #include "dhcpd.h"
+#include "dhcph.h"
 
 /*
 // Internet address
@@ -25,15 +26,15 @@ struct sockaddr_in {
 int status;
 
 const char *status_tbl[] = {
-	"INIT",
-	"WAIT_DISCOVER",
-	"WAIT_REQUEST",
-	"ALLOCATED",
+    "INIT",
+    "WAIT_DISCOVER",
+    "WAIT_REQUEST",
+    "ALLOCATED",
 };
 
-void change_status(int nextst){
-	printf("STATUS: [%s] -> [%s]\n", status_tbl[status], status_tbl[nextst]);
-	status = nextst;
+void change_status(int nextst) {
+  printf("STATUS CHANGED: [%s] -> [%s]\n", status_tbl[status], status_tbl[nextst]);
+  status = nextst;
 }
 
 void wait_client() {
@@ -70,7 +71,7 @@ void wait_client() {
     perror("recvfrom");
     return;
   }
-  printf("received %d byte\n", count);
+	print_dhcpmsg((struct mydhcph *)rbuf, /*if_send=*/0);
 
   // send
 }
@@ -78,16 +79,17 @@ void wait_client() {
 int main() {
   printf("starting dhcpd\n");
 
-	status = INIT;
-	
-	for(;;){
-		switch (status){
-			case INIT:
-  			wait_client();
-				change_status(WAIT_DISCOVER);
-				for(;;);
-		}
-	}
+  status = INIT;
+
+  for (;;) {
+    switch (status) {
+    case INIT:
+      wait_client();
+      change_status(WAIT_DISCOVER);
+      for (;;)
+        ;
+    }
+  }
 
   return 0;
 }

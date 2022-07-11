@@ -1,7 +1,8 @@
-CFLAGS=-O2 -Wall -Wextra -I./include
+CFLAGS=-O2 -Wall -Wextra -I./include -I../common
 LDFLAGS=
 
-SRC = main.c
+SRC = main.c \
+			../common/dhcph.c
 OBJ=$(SRC:.c=.o)
 DEP=$(SRC:.c=.d)
 
@@ -24,7 +25,7 @@ format: $(SRC)
 	find ./ -type f -name "*.c" -or -name "*.h" | xargs clang-format -i
 
 clean:
-	find ./ -type f -name "*.o" -or -name "*.d" -or -name "*.out" | xargs rm -rf
+	find ../ -type f -name "*.o" -or -name "*.d" -or -name "*.out" | xargs rm -rf
 	rm $(TARGET)
 
 .PHONY: all test run run-test format clean
