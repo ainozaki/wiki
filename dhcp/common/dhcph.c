@@ -19,6 +19,7 @@ void print_dhcpmsg(struct mydhcph *hdr, int if_send) {
 
   ipaddr = *(struct in_addr *)&(hdr->ipaddr);
   netmask = *(struct in_addr *)&(hdr->netmask);
-  printf("type=%d, code=%d, ttl=%d, ipaddr=%s, netmask=%s\n", hdr->type,
-         hdr->code, hdr->ttl, inet_ntoa(ipaddr), inet_ntoa(netmask));
+  printf("type=%d, code=%d, ttl=%d, ipaddr=%s, ", hdr->type,
+         hdr->code, hdr->ttl, inet_ntoa(ipaddr));
+	printf("netmask=%s\n", inet_ntoa(netmask));
 }

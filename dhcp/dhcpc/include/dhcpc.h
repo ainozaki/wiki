@@ -1,8 +1,8 @@
 #pragma once
 
-enum client_state{
-	INIT,
-	WAIT_OFFER,
-	WAIT_ACK,
-	ALLOCATED,
+enum client_state {
+  INIT,
+  WAIT_OFFER,
+  WAIT_ACK,
+  ALLOCATED,
 };
