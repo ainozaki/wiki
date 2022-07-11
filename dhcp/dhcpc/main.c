@@ -5,6 +5,8 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
+#include "dhcpc.h"
+
 /*
 // Internet address 
 struct in_addr {
@@ -20,6 +22,20 @@ struct sockaddr_in {
 	char sin_zero[8];
 };
 */
+
+int status;
+
+const char *status_tbl[] = {
+	"INIT",
+	"WAIT_OFFER",
+	"WAIT_ACK",
+	"ALLOCATED",
+};
+
+void change_status(int nextst){
+	printf("STATUS: [%s] -> [%s]\n", status_tbl[status], status_tbl[nextst]);
+	status = nextst;
+}
 
 void send_to_server(const char *server_ip){
 	int s, count, datalen;
@@ -63,6 +79,21 @@ int main(int argc, char *argv[]){
 		return 1;
 	}
 	printf("starting dhcpc\n");
+
+	status = INIT;
+
+	for (;;){
+		switch (status){
+			case INIT:
+				// connect to server
+				send_to_server(argv[1]);
+				change_status(WAIT_OFFER);
+				for(;;);
+				break;
+			default:
+				fprintf(stderr, "unknown status %d\n", status);
+		}
+	}
 
 	// connect to server
 	send_to_server(argv[1]);

@@ -1,4 +1,4 @@
-CFLAGS=-O2 -Wall -Wextra
+CFLAGS=-O2 -Wall -Wextra -I./include
 LDFLAGS=
 
 SRC = main.c
@@ -13,7 +13,7 @@ $(TARGET): $(OBJ)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 %.o: %.c
-	$(CC) $(CXXFLAGS) -c $< -o $@ -MMD -MP -MF $(@:.o=.d)
+	$(CC) $(CFLAGS) -c $< -o $@ -MMD -MP -MF $(@:.o=.d)
 
 -include $(DEP)
 

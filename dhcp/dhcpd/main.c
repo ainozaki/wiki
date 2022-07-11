@@ -5,6 +5,8 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 
+#include "dhcpd.h"
+
 /*
 // Internet address
 struct in_addr {
@@ -20,6 +22,19 @@ struct sockaddr_in {
         char sin_zero[8];
 };
 */
+int status;
+
+const char *status_tbl[] = {
+	"INIT",
+	"WAIT_DISCOVER",
+	"WAIT_REQUEST",
+	"ALLOCATED",
+};
+
+void change_status(int nextst){
+	printf("STATUS: [%s] -> [%s]\n", status_tbl[status], status_tbl[nextst]);
+	status = nextst;
+}
 
 void wait_client() {
   int s, count;
@@ -60,11 +75,19 @@ void wait_client() {
   // send
 }
 
-int main(int argc, char *argv[]) {
+int main() {
   printf("starting dhcpd\n");
 
-  // connect to server
-  wait_client();
+	status = INIT;
+	
+	for(;;){
+		switch (status){
+			case INIT:
+  			wait_client();
+				change_status(WAIT_DISCOVER);
+				for(;;);
+		}
+	}
 
   return 0;
 }
