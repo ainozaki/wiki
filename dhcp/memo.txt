@@ -1,7 +1,0 @@
-61915407 野崎愛
-
-できていること
-- Client->Server: DISCOVER送信
-- Server->Client: OFFER送信
-- 状態変化時のログ
-- 受信・送信メッセージの表示

@@ -1,7 +1,0 @@
-MOVZ X0, 0
-MOVZ X1, 0
-MOVZ X2, 0
-ADD X0, X0, #0x01
-ADD X1, X1, #0x10
-ADD X2, X2, #0x11
-ret
