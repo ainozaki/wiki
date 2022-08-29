@@ -1,49 +1,30 @@
-# ELF
+# section
+- `readelf -S <file>`
+- `readelf -x <section no>`
+- リンクの単位
+## 各メンバのメモ
+- sh_name: 実態は.shstrtabにnull区切りで格納されている。sh_nameはそのindex(shを固定長にするため) 
+- sh_type:
+	- SHT_PROGBITS: .text, .data
+	- SHT_REL, SHT_RELA: 再配置テーブル
+	- SHT_NOBITS: ファイル中に実態はないがロード時にメモリ確保される領域 (.bss)
+- sh_flags:
+	- SHF_WRITE: 書き込み可(.data, .bss)
+	- SHF_ALLOC: ロード時にメモリ確保(.bss, .data, .bss) シンボルテーブル・再配置テーブルなど実行に必要でないセクションには立たない
+	- SHF_EXECINSTR: 実行可能
 
-```
-ubuntu@ubuntu:~/ELF-loader$ cat misc/hello.c
-#include <stdio.h>
-
-static int i0 = 1;
-
-void helloworld(){
-	printf("Hello world2!\n");
-}
-
-int main(){
-	helloworld();
-	helloworld();
-	return 0;
-}
-```
-
-## シンボルテーブル
-- シンボル名 - アドレスの対応表
-- nm: シンボルの情報を表示
-```
-ubuntu@ubuntu:~/ELF-loader$ nm misc/hello.o
-0000000000000000 T helloworld
-0000000000000000 d i0
-0000000000000020 T main
-                 U puts
-```
-
-## 再配置テーブル
-- 関数・変数の参照 - アドレスの対応表
-- readelf -r
-```
-ubuntu@ubuntu:~/ELF-loader$ readelf -r misc/hello.o
-
-Relocation section '.rela.text' at offset 0x2d8 contains 5 entries:
-  Offset          Info           Type           Sym. Value    Sym. Name + Addend
-000000000008  000700000113 R_AARCH64_ADR_PRE 0000000000000000 .rodata + 0
-00000000000c  000700000115 R_AARCH64_ADD_ABS 0000000000000000 .rodata + 0
-000000000010  000f0000011b R_AARCH64_CALL26  0000000000000000 puts + 0
-000000000028  000e0000011b R_AARCH64_CALL26  0000000000000000 helloworld + 0
-00000000002c  000e0000011b R_AARCH64_CALL26  0000000000000000 helloworld + 0
-
-Relocation section '.rela.eh_frame' at offset 0x350 contains 2 entries:
-  Offset          Info           Type           Sym. Value    Sym. Name + Addend
-00000000001c  000200000105 R_AARCH64_PREL32  0000000000000000 .text + 0
-00000000003c  000200000105 R_AARCH64_PREL32  0000000000000000 .text + 20
-```
+# segment
+- `readelf -l <file>`
+- ロードの単位
+- リンカが複数のセクションを1つのセグメントにまとめる
+## 各メンバのメモ
+- p_type: 
+	- PT_LOAD: メモリ上にロード
+	- PT_DYNAMIC: ダイナミック・リンク用
+	- PT_PHDR: プログラムヘッダ自体が1つのセグメント
+- p_paddr: ロード先の物理アドレス。LMA(Load)!=VMAの場合（カーネルなど）に使われる。ロードも実行もvaddrで行われる通常のappでは使用しない
+- p_memsz: 通常はp_fileszと等しいが、bssなどファイル中に実態が無いセクションが含まれる場合はその限りではない
+- p_flags:
+	- PF_X: 実行可
+	- PF_W: 書き込み可
+	- PF_R: 読み込み可
