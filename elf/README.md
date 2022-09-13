@@ -1,8 +1,10 @@
+# elf
+- セグメント, セクション, 各々のヘッダテーブルの順序は固定ではない。ELFヘッダはファイルの先頭固定
+
 # section
 - `readelf -S <file>`
 - `readelf -x <section no>`
 - リンクの単位
-## 各メンバのメモ
 - sh_name: 実態は.shstrtabにnull区切りで格納されている。sh_nameはそのindex(shを固定長にするため) 
 - sh_type:
 	- SHT_PROGBITS: .text, .data
@@ -17,7 +19,6 @@
 - `readelf -l <file>`
 - ロードの単位
 - リンカが複数のセクションを1つのセグメントにまとめる
-## 各メンバのメモ
 - p_type: 
 	- PT_LOAD: メモリ上にロード
 	- PT_DYNAMIC: ダイナミック・リンク用
