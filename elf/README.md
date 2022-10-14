@@ -1,6 +1,25 @@
 # elf
 - セグメント, セクション, 各々のヘッダテーブルの順序は固定ではない。ELFヘッダはファイルの先頭固定
 
+# ダイナミックロード
+- user programはカーネルがロード
+- 共有ライブラリはdynamic linker/loaderがロード
+- ダイナミックロードの流れ
+1. カーネルがprogram, /lib/ld-linux.so.2をロード
+	- INTERPセグメントにdynamic linker/loaderのパスがある
+1. 環境を整えてld.soのエントリポイントにジャンプ
+	- argc, argv, envp, auxvをスタックで渡す
+	- esp->argc, argv[0], argv[1], ..., NULL, envp[0], envp[1],..., NULL, auxv[0], auxv[1], ...
+	- AUXベクタ(auxiliary vector): ユーザ空間の情報を渡す
+
+1. ld.soは渡されたパラメータで初期化
+1. ld.soはプログラムのDYNAMICセグメントを見てリンクされている共有ライブラリを全てロード
+1. ld.soはコードを再配置
+1. programのエントリポイントにジャンプ
+
+
+
+
 # section
 - `readelf -S <file>`
 - `readelf -x <section no>`
