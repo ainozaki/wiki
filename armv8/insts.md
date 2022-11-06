@@ -1,0 +1,7 @@
+- ADR
+	- ADR Xd, label
+	- PCに±1MBのオフセットを加えたものをXdに格納
+- ADRP
+	- ADRP Xd, label
+	- PはPage
+	- PCに±4GBのオフセットを加えたものをページアドレスに変換(=下位12bitをクリア)
