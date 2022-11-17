@@ -1,4 +1,18 @@
 #!/bin/bash
+
+# bssidを1秒毎に表示するスクリプト
+#
+# $ sh ./show_bssid.sh
+# =====================
+# Show SSID and BSSID
+# =====================
+# codeblue
+# codeblue
+# codeblue
+# codeblue
+# ^C
+#
+
 index=0
 
 show_ssid(){
