@@ -4,7 +4,7 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <cmath>
-#include <chrono>
+#include <sys/time.h>
 
 #define checkCudaErrors(val) check( (val), #val, __FILE__, __LINE__)
 
@@ -35,8 +35,6 @@ int main(int argc, char* argv[]) {
     const char* ptxFilename = argv[1];
     const char* kernelName = argv[2];
 
-    const int N = 128;
-
     CUdevice cuDevice;
     CUcontext cuContext;
     CUmodule cuModule;
@@ -60,69 +58,89 @@ int main(int argc, char* argv[]) {
     // Get kernel function from the module
     checkCudaErrors(cuModuleGetFunction(&cuFunction, cuModule, kernelName));
 
-    // Set up kernel execution parameters (example for a simple kernel)
-    // Number of bytes to allocate for N ints
-	size_t bytes = N*sizeof(int);
+    for (int i = 8; i < 24; i++){
+        const int N = 1 << i;
 
-    // Allocate memory for arrays A, B, and C on host
-	int *A = (int*)malloc(bytes);
-	int *B = (int*)malloc(bytes);
-	int *C = (int*)malloc(bytes);
+        // Set up kernel execution parameters (example for a simple kernel)
+        // Number of bytes to allocate for N ints
+	    size_t bytes = N*sizeof(int);
 
-    // Allocate memory for arrays d_A, d_B, and d_C on device
-	int *d_A, *d_B, *d_C;
-	cudaMalloc(&d_A, bytes);
-	cudaMalloc(&d_B, bytes);
-	cudaMalloc(&d_C, bytes);
+        // Allocate memory for arrays A, B, and C on host
+	    int *A = (int*)malloc(bytes);
+	    int *B = (int*)malloc(bytes);
+	    int *C = (int*)malloc(bytes);
 
-    // Fill host arrays A and B
-	for(int i=0; i<N; i++)
-	{
-		A[i] = 1.0;
-		B[i] = 2.0;
-	}
+        // Allocate memory for arrays d_A, d_B, and d_C on device
+        int *d_A, *d_B, *d_C;
+        cudaMalloc(&d_A, bytes);
+        cudaMalloc(&d_B, bytes);
+        cudaMalloc(&d_C, bytes);
 
-	// Copy data from host arrays A and B to device arrays d_A and d_B
-	cudaMemcpy(d_A, A, bytes, cudaMemcpyHostToDevice);
-	cudaMemcpy(d_B, B, bytes, cudaMemcpyHostToDevice);
+        // Fill host arrays A and B
+        for(int i=0; i<N; i++)
+        {
+            A[i] = 1.0;
+            B[i] = 2.0;
+        }
 
-	// Set execution configuration parameters
-	//		thr_per_blk: number of CUDA threads per grid block
-	//		blk_in_grid: number of blocks in grid
-	int thr_per_blk = 8;
-	int blk_in_grid = N / thr_per_blk;
-    char *args[] = { (char*)&d_A, (char*)&d_B, (char*)&d_C, (char*)&N };
-    
-    // Launch kernel
-    // Timer
-    auto start = std::chrono::high_resolution_clock::now();
-    checkCudaErrors(cuLaunchKernel(cuFunction,  // function to launch
-                                   blk_in_grid, 1, 1,    // grid dim
-                                   thr_per_blk, 1, 1,   // block dim
-                                   0,                 // shared memory
-                                   NULL,              // stream
-                                    (void **)args, 
-                                    NULL));       // arguments
-    checkCudaErrors(cuCtxSynchronize());
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> elapsed = end - start;
-    std::cout << "Elapsed time: " << elapsed.count() * 1000 << " ms" << std::endl;
+        // Copy data from host arrays A and B to device arrays d_A and d_B
+        cudaMemcpy(d_A, A, bytes, cudaMemcpyHostToDevice);
+        cudaMemcpy(d_B, B, bytes, cudaMemcpyHostToDevice);
 
+        // Set execution configuration parameters
+        //		thr_per_blk: number of CUDA threads per grid block
+        //		blk_in_grid: number of blocks in grid
+        int thr_per_blk = 8;
+        int blk_in_grid = N / thr_per_blk;
+        char *args[] = { (char*)&d_A, (char*)&d_B, (char*)&d_C, (char*)&N };
+        
 
-	// Copy data from device array d_C to host array C
-	cudaMemcpy(C, d_C, bytes, cudaMemcpyDeviceToHost);
+        // 10 iterations
+        double total_time = 0.0;
+        for (int j = 0; j < 10; j++) {
+            // Timer
+            struct timeval start_time, end_time;
+            gettimeofday(&start_time, NULL);
+            // Launch kernel
+            checkCudaErrors(cuLaunchKernel(cuFunction,  // function to launch
+                                        blk_in_grid, 1, 1,    // grid dim
+                                        thr_per_blk, 1, 1,   // block dim
+                                        0,                 // shared memory
+                                        NULL,              // stream
+                                            (void **)args, 
+                                            NULL));       // arguments
+            checkCudaErrors(cuCtxSynchronize());
+            gettimeofday(&end_time, NULL);
+            double elapsed_time = (end_time.tv_sec - start_time.tv_sec) + (end_time.tv_usec - start_time.tv_usec) / 1000000.0;
+            total_time += elapsed_time;
+        }
+        std::cout << "N: 2 ** " << i << ", " << total_time * 100 << " ms" << std::endl;
 
-    // Verify results
-    int count = N;
-    int tolerance = 1.0e-14;
-	for(int i=0; i<N; i++)
-	{
-		if( std::fabs(C[i] - 3.0) > tolerance)
-		{ 
-			printf("Error: value of C[%d] = %d instead of 3.0\n", i, C[i]);
-            count -= 1;
-		}
-	}	
-    std::cout << "Results: " << count << "/" << N << " are correct." << std::endl;
+        // Copy data from device array d_C to host array C
+        cudaMemcpy(C, d_C, bytes, cudaMemcpyDeviceToHost);
+
+        // Verify results
+        int count = N;
+        int tolerance = 1.0e-14;
+        for(int i=0; i<N; i++)
+        {
+            if( std::fabs(C[i] - 3.0) > tolerance)
+            { 
+                printf("Error: value of C[%d] = %d instead of 3.0\n", i, C[i]);
+                count -= 1;
+            }
+        }	
+        if (count != N){
+            std::cout << "Failed: " << count << "/" << N << " are correct." << std::endl;
+        }
+
+        // Free
+        free(A);
+        free(B);
+        free(C);
+        cudaFree(d_A);
+        cudaFree(d_B);
+        cudaFree(d_C);
+    }    
     return 0;
 }
