@@ -4,9 +4,16 @@
 
 int main(int argc, char* argv[])
 {
+    // Input file
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <input.cl>\n", argv[0]);
+        exit(1);
+    }
+    char *input_file = argv[1];
+
     // Loads add_vectors.cl
     FILE* fp;
-    fp = fopen("vector_add.cl", "r");
+    fp = fopen(input_file, "r");
     if (!fp) {
         fprintf(stderr, "Error loading kernel.\n");
         exit(1);
@@ -53,7 +60,7 @@ int main(int argc, char* argv[])
     err = clGetProgramInfo(program, CL_PROGRAM_BINARIES, sizeof(unsigned char *), &bin, NULL);
 
     // Save PTX to add_vectors_ocl.ptx
-    fp = fopen("vector_add_from_cl.ptx", "wb");
+    fp = fopen("ptx_from_cl.ptx", "wb");
     fwrite(bin, sizeof(char), bin_sz, fp);
     fclose(fp);
     free(bin);
