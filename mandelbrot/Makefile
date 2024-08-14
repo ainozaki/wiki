@@ -1,2 +1,2 @@
 all:
-	g++ mandelbrot.cc -o mandelbot
+	g++ mandelbrot.cc -o mandelbrot
