@@ -1,5 +1,5 @@
 (module
-  (func (export "Mandelbrot")
+  (func (export "MandelbrotOne")
     (param $re f64) (param $im f64)
     (result i32)
     (local $i i32)

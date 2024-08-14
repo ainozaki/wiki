@@ -123,7 +123,7 @@
     (struct.new $complex (local.get $re) (local.get $im))
   )
 
-  (func $MandelbrotOne (param $re f64) (param $im f64) (result i32)
+  (func $MandelbrotOne (export "MandelbrotOne") (param $re f64) (param $im f64) (result i32)
     (local $c (ref null $complex))
     (local.set $c (call $make (local.get $re) (local.get $im)))
     (call $MandelbrotOneInternal (local.get $c))
