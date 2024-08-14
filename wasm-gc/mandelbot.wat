@@ -1,4 +1,85 @@
 (module
+  (type $complex (struct (field $re (mut f64)) (field $im (mut f64))))
+
+  (func $calc_abs
+    (param $c (ref null $complex))
+    (result f64)
+    (local $re f64)
+    (local $im f64)
+
+    ;; access to ref $complex
+    local.get $c
+    struct.get $complex 0
+    local.set $re
+    local.get $c
+    struct.get $complex 1
+    local.set $im
+
+    ;; Calculate abs
+    local.get $re
+    local.get $re
+    f64.mul
+    local.get $im
+    local.get $im
+    f64.mul
+    f64.add
+  )
+
+  (func $update_complex
+    (param $tmp (ref null $complex))
+    (param $init (ref null $complex))
+    (local $re f64)
+    (local $im f64)
+
+    ;; access to ref $complex
+    local.get $tmp
+    struct.get $complex 0
+    local.set $re
+    local.get $tmp
+    struct.get $complex 1
+    local.set $im
+
+    ;; tmp = tmp * tmp + init
+    ;; re
+    local.get $re
+    local.get $re
+    f64.mul
+    local.get $im
+    local.get $im
+    f64.mul
+    f64.sub
+    local.get $init
+    struct.get $complex 0
+    f64.add
+    local.set $re
+    ;; update tmp
+    (struct.set $complex 0 (local.get $tmp) (local.get $re))
+
+    ;; im
+    local.get $re
+    local.get $im
+    f64.mul
+    f64.const 2.0
+    f64.mul
+    local.get $init
+    struct.get $complex 1
+    f64.add
+    local.set $im
+    ;; update tmp
+    (struct.set $complex 1 (local.get $tmp) (local.get $im))
+  )
+
+  (func $make
+    (result (ref null $complex))
+    (struct.new $complex (f64.const 1.0)(f64.const 2.0))
+  )
+
+  (func (export "test") (result f64)
+    (local $c (ref null $complex))
+    (local.set $c (call $make ))
+    (call $calc_abs (local.get $c))
+  )
+
   (func (export "ifMandelbrotIncluded")
     (param $re f64) (param $im f64)
     (result i32)

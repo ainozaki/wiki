@@ -2,10 +2,10 @@
 import { readFileSync } from "node:fs";
 const wasmBuffer = readFileSync("mandelbot.wasm");
 const wasmModule = await WebAssembly.instantiate(wasmBuffer);
-const { ifMandelbrotIncluded } = wasmModule.instance.exports;
+const { ifMandelbrotIncluded, test } = wasmModule.instance.exports;
 
-const nx = 100;
-const ny = 100;
+const nx = 30;
+const ny = 30;
 const xmin = -2.0;
 const ymin = -2.0;
 const xmax = 2.0;
@@ -28,3 +28,6 @@ for (let y = 0; y < ny; y++) {
     }
     console.log();
 }
+
+const test_abs = test();
+console.log("test abs = ", test_abs);
