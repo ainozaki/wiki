@@ -4,6 +4,7 @@
   (func $calc_abs
     (param $c (ref null $complex))
     (result f64)
+    ;; local variables
     (local $re f64)
     (local $im f64)
 
@@ -28,6 +29,7 @@
   (func $update_complex
     (param $tmp (ref null $complex))
     (param $init (ref null $complex))
+    ;; local variables
     (local $re f64)
     (local $im f64)
 
@@ -68,6 +70,53 @@
     ;; update tmp
     (struct.set $complex 1 (local.get $tmp) (local.get $im))
   )
+
+  (func (export "MandelbrotComplexInternal") 
+    (param $init (ref null $complex))
+    ;; local variables
+    (local $i i32)
+    (local $tmp (ref null $complex))
+    (local.set $i (i32.const 0))
+    (struct.set $complex 0 (local.get $tmp) (f64.const 0.0))
+    (struct.set $complex 1 (local.get $tmp) (f64.const 0.0))
+
+    ;; loop
+    (loop $loop_divergence
+      ;; add one to $i
+      local.get $i
+      i32.const 1
+      i32.add
+      local.set $i
+
+      ;; Calculate abs(tmp)
+      local.get $tmp
+      call $calc_abs
+      
+      ;; if abs(tmp) > 2.0, break the loop and return 0
+      f64.const 4.0
+      f64.gt
+      (if
+        (then
+          ;;i32.const 0
+          return
+        )
+      )
+
+      ;; update tmp
+      local.get $tmp
+      local.get $init
+      call $update_complex
+
+      ;; if $i < 20, branch to $loop_divergence
+      local.get $i
+      i32.const 20
+      i32.lt_s
+      br_if $loop_divergence
+
+      ;; return 1
+      ;;i32.const 1
+    )
+  )  
 
   (func $make
     (result (ref null $complex))
