@@ -71,14 +71,13 @@
     (struct.set $complex 1 (local.get $tmp) (local.get $im))
   )
 
-  (func (export "MandelbrotComplexInternal") 
-    (param $init (ref null $complex))
+  (func $MandelbrotComplexInternal 
+    (param $init (ref null $complex)) (result i32) 
     ;; local variables
     (local $i i32)
     (local $tmp (ref null $complex))
     (local.set $i (i32.const 0))
-    (struct.set $complex 0 (local.get $tmp) (f64.const 0.0))
-    (struct.set $complex 1 (local.get $tmp) (f64.const 0.0))
+    (local.set $tmp (call $make (f64.const 0.0) (f64.const 0.0)))
 
     ;; loop
     (loop $loop_divergence
@@ -97,7 +96,7 @@
       f64.gt
       (if
         (then
-          ;;i32.const 0
+          i32.const 0
           return
         )
       )
@@ -112,21 +111,21 @@
       i32.const 20
       i32.lt_s
       br_if $loop_divergence
-
-      ;; return 1
-      ;;i32.const 1
     )
+    ;; return 1
+    i32.const 1
   )  
 
   (func $make
+    (param $re f64) (param $im f64)
     (result (ref null $complex))
-    (struct.new $complex (f64.const 1.0)(f64.const 2.0))
+    (struct.new $complex (local.get $re) (local.get $im))
   )
 
-  (func (export "test") (result f64)
+  (func (export "test") (param $re f64) (param $im f64) (result i32)
     (local $c (ref null $complex))
-    (local.set $c (call $make ))
-    (call $calc_abs (local.get $c))
+    (local.set $c (call $make (local.get $re) (local.get $im)))
+    (call $MandelbrotComplexInternal (local.get $c))
   )
 
   (func (export "ifMandelbrotIncluded")
