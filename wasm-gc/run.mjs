@@ -1,6 +1,12 @@
 // run.mjs
 import { readFileSync } from "node:fs";
-const wasmBuffer = readFileSync("mandelbot_gc.wasm");
+
+// Get arguments
+const args = Deno.args;
+const enableGC = args[0] === "gc";
+const fileName = enableGC ? "mandelbot_gc.wasm" : "mandelbot.wasm";
+
+const wasmBuffer = readFileSync(fileName);
 const wasmModule = await WebAssembly.instantiate(wasmBuffer);
 const { Mandelbrot} = wasmModule.instance.exports;
 
@@ -13,6 +19,9 @@ const ymax = 2.0;
 const dx = (xmax - xmin) / nx;
 const dy = (ymax - ymin) / ny;
 
+Mandelbrot(xmin, ymin, dx, nx);
+
+/*
 for (let y = 0; y < ny; y++) {
     const cy = ymin + y * dy;
     for (let x = 0; x < nx; x++) {
@@ -25,4 +34,11 @@ for (let y = 0; y < ny; y++) {
         }
     }
     console.log();
+}
+*/
+
+if (enableGC) {
+    console.log("============= Mandelbrot with GC-enabled Wasm =============");
+}else {
+    console.log("============= Mandelbrot with Core Wasm =============");
 }

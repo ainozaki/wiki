@@ -1,4 +1,4 @@
-## Run Wasm GC-enabled Wat
+## Run GC-enabled Wasm
 ```
 $ deno --version
 deno 1.45.5 (release, x86_64-unknown-linux-gnu)

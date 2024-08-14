@@ -1,5 +1,6 @@
 (module
   (type $complex (struct (field $re (mut f64)) (field $im (mut f64))))
+  (type $vec (array (mut i32)))
 
   (func $calc_abs
     (param $c (ref null $complex))
@@ -71,7 +72,7 @@
     (struct.set $complex 1 (local.get $tmp) (local.get $im))
   )
 
-  (func $MandelbrotInternal 
+  (func $MandelbrotOneInternal 
     (param $init (ref null $complex)) (result i32) 
     ;; local variables
     (local $i i32)
@@ -122,9 +123,104 @@
     (struct.new $complex (local.get $re) (local.get $im))
   )
 
-  (func (export "Mandelbrot") (param $re f64) (param $im f64) (result i32)
+  (func $MandelbrotOne (param $re f64) (param $im f64) (result i32)
     (local $c (ref null $complex))
     (local.set $c (call $make (local.get $re) (local.get $im)))
-    (call $MandelbrotInternal (local.get $c))
+    (call $MandelbrotOneInternal (local.get $c))
+  )
+  
+  (func (export "Mandelbrot") (param $min f64) (param $max f64) (param $delta f64) (param $step i32)
+    ;; delta = (max - min) / step
+    ;; for(int iy = 0; iy < step; iy++) {
+    ;;  float y = ymin + dy*(double)iy;
+    ;;  for(int ix = 0; ix < step; ix++) {
+    ;;    float x = xmin + dx*(double)ix;
+    ;;    int res = MandelbrotOne(x, y);
+    ;;    int idx = iy * step + ix;
+    ;;    data[idx] = res;
+    ;;  }
+    ;; }
+    (local $ix i32)
+    (local $iy i32)
+    (local $x f64)
+    (local $y f64)
+    (local $res i32)
+    (local $idx i32)
+    (local $veclen i32)
+    (local $resultvec (ref null $vec))
+
+    (local.set $ix (i32.const 0))
+    (local.set $iy (i32.const 0))
+    (local.set $x (f64.const 0.0))
+    (local.set $y (f64.const 0.0))
+
+    ;; vec size = step * step
+    (local.get $step)
+    (local.get $step)
+    i32.mul
+    local.set $veclen
+    (local.set $resultvec (array.new_default $vec (local.get $veclen)))
+
+    (loop $loop_y
+      ;; y = min + delta * iy
+      (local.get $min)
+      (local.get $delta)
+      (local.get $iy)
+      f64.convert_i32_s
+      f64.mul
+      f64.add
+      local.set $y
+
+      (local.set $ix (i32.const 0))
+      (loop $loop_x
+        ;; x = min + delta * ix
+        (local.get $min)
+        (local.get $delta)
+        (local.get $ix)
+        f64.convert_i32_s
+        f64.mul
+        f64.add
+        local.set $x
+
+        ;; res = MandelbrotOne(x, y)
+        (call $MandelbrotOne (local.get $x) (local.get $y))
+        local.set $res
+
+        ;; idx = iy * step + ix
+        (local.get $iy)
+        (local.get $step)
+        i32.mul
+        (local.get $ix)
+        i32.add
+        local.set $idx
+
+        ;; data[idx] = res
+        (array.set $vec (local.get $resultvec) (local.get $idx) (local.get $res))
+
+        ;; ix++
+        (local.get $ix)
+        i32.const 1
+        i32.add
+        local.set $ix
+
+        ;; if ix >= step, break
+        (local.get $ix)
+        (local.get $step)
+        i32.lt_s
+        br_if $loop_x
+      )
+
+      ;; iy++
+      (local.get $iy)
+      i32.const 1
+      i32.add
+      local.set $iy
+
+      ;; if iy >= step, break
+      (local.get $iy)
+      (local.get $step)
+      i32.lt_s 
+      br_if $loop_y
+    )
   )
 )
