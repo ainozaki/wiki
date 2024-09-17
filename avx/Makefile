@@ -1,2 +1,2 @@
 all:
-	gcc -march=native ./avx.c
+	g++ -march=native ./avx.cc
