@@ -60,6 +60,47 @@ void test_vaes(){
     }
 }
 
+__m512i _mm512_aesenclast_epi128_emulate(__m512i a, __m512i RoundKey){
+    __m512i res = _mm512_setzero_epi32();
+    __m128i a_i = _mm512_extracti64x2_epi64(a, 0);
+    __m128i rk_i = _mm512_extracti64x2_epi64(RoundKey, 0);
+    __m128i res_i = _mm_aesenclast_si128(a_i, rk_i);
+    res = _mm512_inserti64x2(res, res_i, 0);
+
+    a_i = _mm512_extracti64x2_epi64(a, 1);
+    rk_i = _mm512_extracti64x2_epi64(RoundKey, 1);
+    res_i = _mm_aesenclast_si128(a_i, rk_i);
+    res = _mm512_inserti64x2(res, res_i, 1);
+
+    a_i = _mm512_extracti64x2_epi64(a, 2);
+    rk_i = _mm512_extracti64x2_epi64(RoundKey, 2);
+    res_i = _mm_aesenclast_si128(a_i, rk_i);
+    res = _mm512_inserti64x2(res, res_i, 2);
+
+    a_i = _mm512_extracti64x2_epi64(a, 3);
+    rk_i = _mm512_extracti64x2_epi64(RoundKey, 3);
+    res_i = _mm_aesenclast_si128(a_i, rk_i);
+    res = _mm512_inserti64x2(res, res_i, 3);
+    return res;
+}
+
+void test__mm512_aesenclast_epi128(){
+    // VAES
+    const __m512i v0 = _mm512_set_epi64(0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10);   
+    const __m512i key = _mm512_set_epi64(0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20);
+    __m512i res = _mm512_aesenclast_epi128(v0, key); 
+
+    __m512i res_emulated = _mm512_aesenclast_epi128_emulate(v0, key);
+
+    // Compare
+    __mmask8 cmp = _mm512_cmpeq_epi64_mask(res, res_emulated);
+    if (cmp == 0xFF) {
+        printf("Aesenclast: VAES result == Emulated result\n");
+    } else {
+        printf("Aesenclast: VAES result != Emulated result\n");
+    }
+}
+
 int extract_bit(const char *ptr, int offset_bit, int bits){
     assert(bits <= 32);
     assert(offset_bit % 8 == 0);
@@ -152,6 +193,7 @@ int main(int argc, char **argv) {
     test_avx2();
     test_avx512();
     test_vaes();
+    test__mm512_aesenclast_epi128();
     test_avx512_vbmi();
     test_avx512_vbmi2();
 }
