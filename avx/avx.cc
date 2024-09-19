@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <bitset>
 #include <iostream>
 
 void showAVX512(const __m512i& v512) {
@@ -28,7 +29,7 @@ void test_avx512(){
     const __m512i off0 = _mm512_set_epi64(3,0,2,0,1,0,0,0);
 }
 
-template <int Shift> void _mm512_aesenc_epi128_internal(const __m512i &v0, const __m512i &key, __m512i &res){
+template <int Shift> void _mm512_aesenc_epi128_emulate(__m512i &res, const __m512i &v0, const __m512i &key){
     __m128i v0_i = _mm512_extracti64x2_epi64(v0, Shift);
     __m128i key_i = _mm512_extracti64x2_epi64(key, Shift);
     __m128i res_aes_128 = _mm_aesenc_si128(v0_i, key_i);
@@ -44,10 +45,10 @@ void test_vaes(){
 
     // AES
     __m512i res_aes_without_vaes;
-    _mm512_aesenc_epi128_internal<0>(v0, key, res_aes_without_vaes);
-    _mm512_aesenc_epi128_internal<1>(v0, key, res_aes_without_vaes);
-    _mm512_aesenc_epi128_internal<2>(v0, key, res_aes_without_vaes);
-    _mm512_aesenc_epi128_internal<3>(v0, key, res_aes_without_vaes);
+    _mm512_aesenc_epi128_emulate<0>(res_aes_without_vaes, v0, key);
+    _mm512_aesenc_epi128_emulate<1>(res_aes_without_vaes, v0, key);
+    _mm512_aesenc_epi128_emulate<2>(res_aes_without_vaes, v0, key);
+    _mm512_aesenc_epi128_emulate<3>(res_aes_without_vaes, v0, key);
     
     // Compare
     __mmask8 cmp = _mm512_cmpeq_epi64_mask(res_aes_512, res_aes_without_vaes);
@@ -56,6 +57,15 @@ void test_vaes(){
     } else {
         printf("AES result != VAES result\n");
     }
+}
+
+__m512i _mm512_permutex2var_epi8_internal(const __m512i &a, const __m512i &idx, const __m512i &b){
+    __m512i res;
+    for (int j = 0; j < 64; j++) {
+        const int i = j * 8;
+        // extract idx[i:i+5]
+    }
+    return res;
 }
 
 // test _mm512_permutex2var_epi8
@@ -67,21 +77,48 @@ void test_avx512_vbmi(){
 
 }
 
+void _mm512_mask_compressstoreu_epi16_emulate(void *res, const __m512i &v0, const __mmask32 &k){
+    char *base = (char *)res;
+    for (int i = 0; i < 32; i++){
+        const int j = i * 16;
+        int k_i = (k >> i) & 1;
+        if (k_i) {
+            memcpy((char *)base, (char *)&v0 + j, 2);
+            base += 2;
+        }
+    }
+}
+
 // test _mm512_mask_compressstoreu_epi16
 void test_avx512_vbmi2(){
-    void *res = malloc(8 * sizeof(uint64_t));
-    void *res_without_vbmi = malloc(8 * sizeof(uint64_t));
-
+    alignas(alignof(__m512i)) unsigned char res[sizeof(__m512i)] = {0};
+    alignas(alignof(__m512i)) unsigned char res_without_vbmi[sizeof(__m512i)] = {0};
+    
     const __m512i a = _mm512_set_epi64(0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10);
-    const __mmask32 k = 0x0F;
+    const __mmask32 k = 16;
     _mm512_mask_compressstoreu_epi16(res, k, a);
 
+    _mm512_mask_compressstoreu_epi16_emulate(res_without_vbmi, a, k);
+    
+    // Compare
+    if (memcmp(res, (char *)&res_without_vbmi, sizeof(__m512i)) == 0) {
+        printf("Compress result == Compress without VBMI result\n");
+    } else {
+        std::cout << "Input: " << std::endl;
+        showAVX512(*(__m512i *)&a);
+        std::cout << "Mask: " << std::bitset<32>(k) << std::endl;
+        std::cout << "HW: " << std::endl;
+        showAVX512(*(__m512i *)res);
+        std::cout << "Emulation: " << std::endl;
+        showAVX512(*(__m512i *)res_without_vbmi);
+        printf("Compress result != Compress without VBMI result\n");
+    }
 }
 
 int main(int argc, char **argv) {
     test_avx2();
     test_avx512();
     test_vaes();
-    test_avx512_vbmi();
+    //test_avx512_vbmi();
     test_avx512_vbmi2();
 }
