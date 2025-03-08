@@ -1,2 +1,3 @@
-all:
-	nvcc device.cu main.cu --relocatable-device-code true 
+device:
+	nvcc -o query_device deviceQuery.cpp -I./
+	./query_device
