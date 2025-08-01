@@ -1,1 +1,4 @@
 query_device
+a.out
+err.log
+*.nsys-rep
