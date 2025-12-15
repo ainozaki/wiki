@@ -3,8 +3,9 @@
   <script>
     webLLMGlobal = {};
   </script>
+  <title>WebLLM Demo</title>
   <body>
-    <h2>WebLLM Test Page</h2>
+    <h2>WebLLM Demo Page</h2>
     <br />
     <br />
     <label id="init-label"> </label>
@@ -19,7 +20,17 @@
 
     <h3>Response</h3>
     <label id="generate-label"> </label>
+
+    <label id="error-label" style="color: red;"> </label>
     <br />
+    <br />
+    <br />
+    <br />
+    <p>
+    This demo runs Llama-3.1-8B-Instruct-q4f32_1-MLC using WebLLM (https://github.com/mlc-ai/web-llm) in your browser.
+    <br />
+    It is not intended for production deployments. Use at your own risk.
+    </p>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>
