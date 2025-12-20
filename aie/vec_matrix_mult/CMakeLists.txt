@@ -28,22 +28,30 @@ else()
     set(XRT_LIB_DIR C:/Technical/xrtNPUfromDLL CACHE STRING "Path to xrt_coreutil.lib")
 endif()
 
+set(IN1_SIZE 8192 CACHE STRING "in1 buffer size")
+set(IN2_SIZE 4 CACHE STRING "in2 buffer size")
+set(OUT_SIZE 8192 CACHE STRING "out buffer size")
+set(INT_BIT_WIDTH 16 CACHE STRING "integer bit width size")
 set(TARGET_NAME test CACHE STRING "Target to be built")
 
 SET (ProjectName ${TARGET_NAME})
 SET (currentTarget ${TARGET_NAME})
 
-if ( WSL )
+if (WSL)
 	set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR})
     add_compile_options(/Zc:__cplusplus)
 endif ()
 
 project(${ProjectName})
 
-
 add_executable(${currentTarget} test.cpp)
 
-set_property(TARGET ${currentTarget} PROPERTY CXX_STANDARD 23)
+target_compile_definitions(${currentTarget} PUBLIC
+    IN1_SIZE=${IN1_SIZE}
+    IN2_SIZE=${IN2_SIZE}
+    OUT_SIZE=${OUT_SIZE}
+    INT_BIT_WIDTH=${INT_BIT_WIDTH}
+)
 
 target_include_directories (${currentTarget} PUBLIC ${XRT_INC_DIR})
 
@@ -56,3 +64,4 @@ target_link_libraries(${currentTarget} PUBLIC
 )
 
 target_link_test_utils(${currentTarget})
+
