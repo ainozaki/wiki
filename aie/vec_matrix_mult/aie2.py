@@ -18,23 +18,24 @@ import aie.utils.trace as trace_utils
 from aie.utils.trace import PortEvent
 from aie.utils.trace_events_enum import CoreEvent, MemEvent, ShimTileEvent, MemTileEvent
 
+dev = AIEDevice.npu1
+N = 4096
+N_bytes = 4096 * 4
 
-def vec_matrix_mult(dev, in1_size, in2_size, out_size, int_bit_width, trace_size):
+def vec_matrix_mult(dev, trace_size):
 
-    if int_bit_width == 16:
-        in1_dtype = np.int16
-        out_dtype = np.int16
-    else:  # default is 32-bit
-        in1_dtype = np.int32
-        out_dtype = np.int32
-
+    in1_dtype = np.int32
+    out_dtype = np.int32
     in2_dtype = np.int32
 
-    tensor_size = in1_size // in1_dtype(0).nbytes
+    in1_size = N
+    in2_size = N
+    out_size = N
+
+    tensor_size = N
     num_sub_vectors = 4
     tile_size = tensor_size // num_sub_vectors
 
-    assert in2_size == 4, "2nd input buffer must be size 4 (4 bytes = 1 integer)."
     assert out_size == in1_size, "Output buffer size must match input buffer size."
 
     vectorized = True
@@ -43,15 +44,14 @@ def vec_matrix_mult(dev, in1_size, in2_size, out_size, int_bit_width, trace_size
     def device_body():
         tensor_ty = np.ndarray[(tensor_size,), np.dtype[in1_dtype]]
         tile_ty = np.ndarray[(tile_size,), np.dtype[in1_dtype]]
-        scalar_ty = np.ndarray[(1,), np.dtype[in2_dtype]]
         ctrl_pkt_ty = np.ndarray[(1,), np.dtype[np.uint32]]
         trace_ty = np.ndarray[(trace_size,), np.dtype[np.uint8]]
 
         # AIE Core Function declarations
         func_type = "vector" if vectorized else "scalar"
-        scale = external_func(
-            f"vector_scalar_mul_{func_type}",
-            inputs=[tile_ty, tile_ty, scalar_ty, np.int32],
+        add_vector = external_func(
+            f"vector_vector_add",
+            inputs=[tile_ty, tile_ty, tile_ty, np.int32],
         )
 
         # Tile declarations
@@ -61,7 +61,7 @@ def vec_matrix_mult(dev, in1_size, in2_size, out_size, int_bit_width, trace_size
 
         # AIE-array data movement with object fifos
         of_in = object_fifo("in", ShimTile, ComputeTile2, 2, tile_ty)
-        of_factor = object_fifo("infactor", ShimTile, ComputeTile2, 2, scalar_ty)
+        of_in2 = object_fifo("in2", ShimTile, ComputeTile2, 2, tile_ty)
         of_out = object_fifo("out", ComputeTile2, ShimTile, 2, tile_ty)
 
         # Set up compute tiles
@@ -70,15 +70,16 @@ def vec_matrix_mult(dev, in1_size, in2_size, out_size, int_bit_width, trace_size
         def core_body():
             # Effective while(1)
             for _ in range_(sys.maxsize):
-                elem_factor = of_factor.acquire(ObjectFifoPort.Consume, 1)
                 # Number of sub-vector "tile" iterations
                 for _ in range_(num_sub_vectors):
                     elem_out = of_out.acquire(ObjectFifoPort.Produce, 1)
                     elem_in = of_in.acquire(ObjectFifoPort.Consume, 1)
-                    scale(elem_in, elem_out, elem_factor, tile_size)
+                    elem_in2 = of_in2.acquire(ObjectFifoPort.Consume, 1)
+                    add_vector(elem_in, elem_in2, elem_out, tile_size)
                     of_in.release(ObjectFifoPort.Consume, 1)
+                    of_in2.release(ObjectFifoPort.Consume, 1)
                     of_out.release(ObjectFifoPort.Produce, 1)
-                of_factor.release(ObjectFifoPort.Consume, 1)
+
 
         # Set up a packet-switched flow from core to shim for tracing information
         tiles_to_trace = [ComputeTile2, ComputeTile2]
@@ -90,8 +91,8 @@ def vec_matrix_mult(dev, in1_size, in2_size, out_size, int_bit_width, trace_size
 
         # To/from AIE-array data movement
         # @runtime_sequence(tensor_ty, scalar_ty, tensor_ty, ctrl_pkt_ty, trace_ty)
-        @runtime_sequence(tensor_ty, scalar_ty, tensor_ty)
-        def sequence(A, F, C):
+        @runtime_sequence(tensor_ty, tensor_ty, tensor_ty)
+        def sequence(A, B, C):
             if trace_size > 0:
                 trace_utils.configure_packet_tracing_aie2(
                     tiles_to_trace=tiles_to_trace,
@@ -122,15 +123,15 @@ def vec_matrix_mult(dev, in1_size, in2_size, out_size, int_bit_width, trace_size
             in_task = shim_dma_single_bd_task(
                 of_in, A, sizes=[1, 1, 1, tensor_size], issue_token=True
             )
-            in_factor_task = shim_dma_single_bd_task(
-                of_factor, F, sizes=[1, 1, 1, 1], issue_token=True
+            in2_task = shim_dma_single_bd_task(
+                of_in2, B, sizes=[1, 1, 1, tensor_size], issue_token=True
             )
             out_task = shim_dma_single_bd_task(
                 of_out, C, sizes=[1, 1, 1, tensor_size], issue_token=True
             )
 
-            dma_start_task(in_task, in_factor_task, out_task)
-            dma_await_task(in_task, in_factor_task, out_task)
+            dma_start_task(in_task, in2_task, out_task)
+            dma_await_task(in_task, in2_task, out_task)
 
             if trace_size > 0:
                 trace_utils.config_ctrl_pkts_aie(
@@ -171,21 +172,11 @@ p.add_argument(
     help="Trace buffer size",
 )
 
-dev = AIEDevice.npu1
 opts = p.parse_args(sys.argv[1:])
-in1_size = int(opts.in1_size)
-if in1_size % 128 != 0 or in1_size < 1024:
-    print(
-        "In1 buffer size must be a multiple of 128 (so len is multiple of 64) and greater than or equal to 1024 (so len >= 512)"
-    )
-    raise ValueError
-in2_size = int(opts.in2_size)
-out_size = int(opts.out_size)
-int_bit_width = int(opts.int_bit_width)
 trace_size = int(opts.trace_size)
 
 with mlir_mod_ctx() as ctx:
-    vec_matrix_mult(dev, in1_size, in2_size, out_size, int_bit_width, trace_size)
+    vec_matrix_mult(dev, trace_size)
     res = ctx.module.operation.verify()
     if res == True:
         print(ctx.module)

@@ -16,15 +16,10 @@ MLIR_AIE_DIR=/home/projects/aie/mlir-aie/v1.1.3/
 
 devicename ?= $(if $(filter 1,$(NPU2)),npu2,npu)
 targetname = vector_scalar_mul
-int_bit_width = 16
+int_bit_width = 32
 
-ifeq (${int_bit_width}, 16)
-in1_size = 8192 # in bytes
-out_size = 8192 # in bytes, should always be equal to in1_size
-else # assume int_bit_width == 32
 in1_size = 16384 # in bytes
 out_size = 16384 # in bytes, should always be equal to in1_size
-endif
 in2_size = 4 # in bytes, should always be 4 (1x int32)
 trace_size = 8192
 CHESS ?= false

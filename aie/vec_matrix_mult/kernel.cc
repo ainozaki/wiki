@@ -18,9 +18,11 @@
 
 // Scalar scale template
 template <typename T>
-void scale_scalar(T *a, T *c, T factor, const int32_t N) {
+void scale_scalar(T *a, T *c, T factor, const int32_t N)
+{
   event0();
-  for (int i = 0; i < N; i++) {
+  for (int i = 0; i < N; i++)
+  {
     c[i] = factor * a[i];
   }
   event1();
@@ -30,7 +32,8 @@ void scale_scalar(T *a, T *c, T factor, const int32_t N) {
 // Assume N is multiple of 16
 template <typename T>
 void scale_vectorized(T *__restrict a, T *__restrict c, int32_t factor,
-                      const int32_t N) {
+                      const int32_t N)
+{
   event0();
   constexpr int vec_factor = 32;
   T *__restrict pA1 = a;
@@ -40,7 +43,8 @@ void scale_vectorized(T *__restrict a, T *__restrict c, int32_t factor,
 
   AIE_PREPARE_FOR_PIPELINING
   AIE_LOOP_MIN_ITERATION_COUNT(16)
-  for (int i = 0; i < F; i++) {
+  for (int i = 0; i < F; i++)
+  {
     aie::vector<T, vec_factor> A0 = aie::load_v<vec_factor>(pA1);
     pA1 += vec_factor;
     aie::accum<acc32, vec_factor> cout = aie::mul(A0, fac);
@@ -54,7 +58,8 @@ void scale_vectorized(T *__restrict a, T *__restrict c, int32_t factor,
 // Assume N is multiple of 16
 template <>
 void scale_vectorized<int32_t>(int32_t *__restrict a, int32_t *__restrict c,
-                               int32_t factor, const int32_t N) {
+                               int32_t factor, const int32_t N)
+{
   event0();
   constexpr int vec_factor = 16;
   int32_t *__restrict pA1 = a;
@@ -63,7 +68,8 @@ void scale_vectorized<int32_t>(int32_t *__restrict a, int32_t *__restrict c,
 
   AIE_PREPARE_FOR_PIPELINING
   AIE_LOOP_MIN_ITERATION_COUNT(16)
-  for (int i = 0; i < F; i++) {
+  for (int i = 0; i < F; i++)
+  {
     aie::vector<int32_t, vec_factor> A0 = aie::load_v<vec_factor>(pA1);
     pA1 += vec_factor;
     aie::accum<acc64, vec_factor> cout = aie::mul(A0, factor);
@@ -73,31 +79,61 @@ void scale_vectorized<int32_t>(int32_t *__restrict a, int32_t *__restrict c,
   event1();
 }
 
-extern "C" {
+extern "C"
+{
 
 #if BIT_WIDTH == 16
 
-void vector_scalar_mul_scalar(int16_t *a_in, int16_t *c_out, int32_t *factor,
-                              int32_t N) {
-  scale_scalar<int16_t>(a_in, c_out, *factor, N);
-}
+  void vector_scalar_mul_scalar(int16_t *a_in, int16_t *c_out, int32_t *factor,
+                                int32_t N)
+  {
+    scale_scalar<int16_t>(a_in, c_out, *factor, N);
+  }
 
-void vector_scalar_mul_vector(int16_t *a_in, int16_t *c_out, int32_t *factor,
-                              int32_t N) {
-  scale_vectorized<int16_t>(a_in, c_out, *factor, N);
-}
+  void vector_scalar_mul_vector(int16_t *a_in, int16_t *c_out, int32_t *factor,
+                                int32_t N)
+  {
+    scale_vectorized<int16_t>(a_in, c_out, *factor, N);
+  }
 
 #else // Defaults to 32-bit
 
-void vector_scalar_mul_scalar(int32_t *a_in, int32_t *c_out, int32_t *factor,
-                              int32_t N) {
-  scale_scalar<int32_t>(a_in, c_out, *factor, N);
-}
+  void vector_scalar_mul_scalar(int32_t *a_in, int32_t *c_out, int32_t *factor,
+                                int32_t N)
+  {
+    scale_scalar<int32_t>(a_in, c_out, *factor, N);
+  }
 
-void vector_scalar_mul_vector(int32_t *a_in, int32_t *c_out, int32_t *factor,
-                              int32_t N) {
-  scale_vectorized<int32_t>(a_in, c_out, *factor, N);
-}
+  void vector_scalar_mul_vector(int32_t *a_in, int32_t *c_out, int32_t *factor,
+                                int32_t N)
+  {
+    scale_vectorized<int32_t>(a_in, c_out, *factor, N);
+  }
+
+  void vector_vector_add(int32_t *in_a, int32_t *in_b, int32_t *out_c,
+                         int32_t N)
+  {
+    event0();
+    constexpr int vec_factor = 16;
+    int32_t *__restrict pA1 = in_a;
+    int32_t *__restrict pB1 = in_b;
+    int32_t *__restrict pC1 = out_c;
+    const int F = N / vec_factor;
+
+    AIE_PREPARE_FOR_PIPELINING
+    AIE_LOOP_MIN_ITERATION_COUNT(16)
+    for (int i = 0; i < F; i++)
+    {
+      aie::vector<int32_t, vec_factor> A0 = aie::load_v<vec_factor>(pA1);
+      aie::vector<int32_t, vec_factor> B0 = aie::load_v<vec_factor>(pB1);
+      pA1 += vec_factor;
+      pB1 += vec_factor;
+      aie::vector<int32_t, vec_factor> cout = aie::add(A0, B0);
+      aie::store_v(pC1, cout);
+      pC1 += vec_factor;
+    }
+    event1();
+  }
 
 #endif
 
