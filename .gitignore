@@ -1,3 +1,7 @@
 flash/
 a.out
+*.exe
 .DS_Store
+
+build/
+_build/
