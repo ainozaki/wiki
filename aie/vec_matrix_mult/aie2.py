@@ -17,6 +17,7 @@ from aie.helpers.dialects.ext.scf import _for as range_
 import aie.utils.trace as trace_utils
 from aie.utils.trace import PortEvent
 from aie.utils.trace_events_enum import CoreEvent, MemEvent, ShimTileEvent, MemTileEvent
+from aie.extras.dialects.ext import memref, arith
 
 dev = AIEDevice.npu1
 N = 4096
@@ -28,89 +29,132 @@ def vec_matrix_mult(dev, trace_size):
     out_dtype = np.int32
     in2_dtype = np.int32
 
-    in1_size = N
-    in2_size = N
-    out_size = N
-    
     n_rows = 2
     n_cols = 1
 
+    k_per_core = 1
+
     tensor_size = N
+    matrix_size = N * n_rows
     num_sub_vectors = 4
-    tile_size = tensor_size // num_sub_vectors
-    tile_size_per_col = tile_size // n_cols
-    tile_size_per_core = tile_size_per_col // n_rows
+
+    tiled_tensor_size = tensor_size // num_sub_vectors
+    tiled_matrix_size = tiled_tensor_size * n_rows
+
+    output_per_core = k_per_core
+    output_size = n_rows * output_per_core
     
     vectorized = True
 
 
     @device(dev)
     def device_body():
-        tensor_ty = np.ndarray[(tensor_size,), np.dtype[in1_dtype]]
-        tile_ty_per_col = np.ndarray[(tile_size_per_col,), np.dtype[in1_dtype]]
-        tile_ty = np.ndarray[(tile_size_per_core,), np.dtype[in1_dtype]]
+        tile_ty = np.ndarray[(tiled_tensor_size,), np.dtype[in1_dtype]]    
+        tile_matrix_ty = np.ndarray[(tiled_matrix_size,), np.dtype[in2_dtype]]    
+        
+        output_ty = np.ndarray[(output_size,), np.dtype[out_dtype]]
+        output_ty_per_core = np.ndarray[(k_per_core,), np.dtype[out_dtype]]
+
         ctrl_pkt_ty = np.ndarray[(1,), np.dtype[np.uint32]]
         trace_ty = np.ndarray[(trace_size,), np.dtype[np.uint8]]
 
+        buff_ty = np.ndarray[(128,), np.dtype[np.int32]]
+
+    
+        # ==============================================
         # AIE Core Function declarations
-        add_vector = external_func(
-            f"vector_vector_add",
-            inputs=[tile_ty, tile_ty, tile_ty, np.int32],
+        # ==============================================
+        ## void vector_accum(int32_t *in_a, int32_t *in_b, int32_t *out_c, int32_t N)
+        accum_func = external_func(
+            f"vector_accum",
+            inputs=[tile_ty, tile_ty, output_ty_per_core, np.int32],
         )
 
+        ## void store_buff(int32_t *buff, int32_t offset, int32_t value)
+        store_buff_func = external_func(
+            f"store_buff",
+            inputs=[buff_ty, np.int32, np.int32],
+        )
+
+        ## void zeros(int32_t *buff, int32_t size)
+        zeros_func = external_func(
+            f"zeros",
+            inputs=[output_ty_per_core, np.int32],
+        )
+
+        # ==============================================
         # Tile declarations
+        # ==============================================
         ShimTile = tile(0, 0)
         MemTile = tile(0, 1)
         CtrlShimTile = tile(1, 0)
         ComputeTiles = [tile(0, 2 + i) for i in range(n_rows)]
         
-        # AIE-array data movement with object fifos
+        # ==============================================
+        # Object FIFO declarations
+        # ==============================================
         of_in_shim_mem = object_fifo(
-            "in_shim_mem", ShimTile, MemTile, 2, tile_ty_per_col
+            "in_shim_mem", ShimTile, MemTile, 2, tile_ty
         )
         of_in2_shim_mem = object_fifo(
-            "in2_shim_mem", ShimTile, MemTile, 2, tile_ty_per_col
+            "in2_shim_mem", ShimTile, MemTile, 2, tile_matrix_ty
         )
         of_out_mem_shim = object_fifo(
-            "out_mem_shim", MemTile, ShimTile, 2, tile_ty_per_col
+            "out_mem_shim", MemTile, ShimTile, 2, output_ty
         )
-        of_in_list = []
+
+        # in1
+        of_in_broadcast = object_fifo("in_mem_ct_broadcast", MemTile, ComputeTiles, 2, tile_ty)
+        object_fifo_link(of_in_shim_mem, [of_in_broadcast], [], [0])
+
+        # in2
         of_in2_list = []
-        of_out_list = []
         for r in range(n_rows):
-            of_in_list.append(
-                object_fifo(f"in_mem_ct{r}", MemTile, ComputeTiles[r], 2, tile_ty)
-            )
             of_in2_list.append(
                 object_fifo(f"in2_mem_ct{r}", MemTile, ComputeTiles[r], 2, tile_ty)
             )
+        object_fifo_link(of_in2_shim_mem, of_in2_list, [], [tiled_tensor_size * r for r in range(n_rows)])
+        
+        # out
+        of_out_list = []
+        for r in range(n_rows):
             of_out_list.append(
-                object_fifo(f"out_ct{r}_mem", ComputeTiles[r], MemTile, 2, tile_ty)
+                object_fifo(f"out_ct{r}_mem", ComputeTiles[r], MemTile, 2, output_ty_per_core)
             )
-        of_offsets = [tile_size_per_core * r for r in range(n_rows)]
-        object_fifo_link(of_in_shim_mem, of_in_list, [], of_offsets)
-        object_fifo_link(of_in2_shim_mem, of_in2_list, [], of_offsets)
-        object_fifo_link(of_out_list, of_out_mem_shim, of_offsets, [])
+        object_fifo_link(of_out_list, of_out_mem_shim, [k_per_core * r for r in range(n_rows)], [])
 
-        # Set up compute tiles
-        # Compute tile 2
+        # ==============================================
+        # Buff declarations
+        # ==============================================
+        buffs = []
+        for r in range(n_rows):
+            buffs.append(buffer(ComputeTiles[r], np.ndarray[(128,), np.dtype[np.int32]] ,f"buff_ct{r}"))
+        
+        
+        # ==============================================
+        # Compute Tile Main Loops
+        # ==============================================
         for r in range(n_rows):
             @core(ComputeTiles[r], "kernel.o")
             def core_body():
                 # Effective while(1)
+                store_buff_func(buffs[r], 0, 0)
                 for _ in range_(sys.maxsize):
                     # Number of sub-vector "tile" iterations
-                    for _ in range_(num_sub_vectors):
-                        elem_out = of_out_list[r].acquire(ObjectFifoPort.Produce, 1)
-                        elem_in = of_in_list[r].acquire(ObjectFifoPort.Consume, 1)
+                    elem_out = of_out_list[r].acquire(ObjectFifoPort.Produce, 1)
+                    zeros_func(elem_out, 1)
+                    for loop in range(num_sub_vectors):
+                        elem_in = of_in_broadcast.acquire(ObjectFifoPort.Consume, 1)
                         elem_in2 = of_in2_list[r].acquire(ObjectFifoPort.Consume, 1)
-                        add_vector(elem_in, elem_in2, elem_out, tile_size_per_core)
-                        of_in_list[r].release(ObjectFifoPort.Consume, 1)
+                        accum_func(elem_in, elem_in2, elem_out, tiled_tensor_size)
+                        of_in_broadcast.release(ObjectFifoPort.Consume, 1)
                         of_in2_list[r].release(ObjectFifoPort.Consume, 1)
-                        of_out_list[r].release(ObjectFifoPort.Produce, 1)
+                    of_out_list[r].release(ObjectFifoPort.Produce, 1)
 
 
-        # Set up a packet-switched flow from core to shim for tracing information
+        # ==============================================
+        # Setup trace trace
+        # ==============================================
         tiles_to_trace = [ComputeTiles[r] for r in range(n_rows)]
         if trace_size > 0:
             trace_utils.configure_packet_tracing_flow(tiles_to_trace, ShimTile)
@@ -118,9 +162,13 @@ def vec_matrix_mult(dev, trace_size):
 
         trace_size_int32 = trace_size // np.dtype(np.int32).itemsize
 
-        # To/from AIE-array data movement
-        # @runtime_sequence(tensor_ty, scalar_ty, tensor_ty, ctrl_pkt_ty, trace_ty)
-        @runtime_sequence(tensor_ty, tensor_ty, tensor_ty)
+
+        # ==============================================
+        # Runtime Sequence
+        # ==============================================
+        tensor_ty = np.ndarray[(tensor_size,), np.dtype[in1_dtype]]
+        matrix_ty = np.ndarray[(matrix_size,), np.dtype[in2_dtype]]
+        @runtime_sequence(tensor_ty, matrix_ty, output_ty)
         def sequence(A, B, C):
             if trace_size > 0:
                 trace_utils.configure_packet_tracing_aie2(
@@ -153,10 +201,10 @@ def vec_matrix_mult(dev, trace_size):
                 of_in_shim_mem, A, sizes=[1, 1, 1, tensor_size], issue_token=True
             )
             in2_task = shim_dma_single_bd_task(
-                of_in2_shim_mem, B, sizes=[1, 1, 1, tensor_size], issue_token=True
+                of_in2_shim_mem, B, sizes=[1, 1, 1, matrix_size], issue_token=True
             )
             out_task = shim_dma_single_bd_task(
-                of_out_mem_shim, C, sizes=[1, 1, 1, tensor_size], issue_token=True
+                of_out_mem_shim, C, sizes=[1, 1, 1, output_size], issue_token=True
             )
 
             dma_start_task(in_task, in2_task, out_task)
@@ -170,6 +218,10 @@ def vec_matrix_mult(dev, trace_size):
                 trace_utils.gen_trace_done_aie2(ShimTile)
 
 
+
+# ==============================================
+# Options
+# ==============================================
 p = argparse.ArgumentParser()
 p.add_argument(
     "-t",

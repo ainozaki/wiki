@@ -78,7 +78,7 @@ run: ${targetname}_${data_size}.exe build/final_${data_size}.xclbin build/insts_
 	./$< -x build/final_${data_size}.xclbin -i build/insts_${data_size}.bin -k MLIR_AIE
 
 trace: ${targetname}_${data_size}.exe build/final_trace_${data_size}.xclbin build/insts_${data_size}.bin 
-	./$< -x build/final_trace_${data_size}.xclbin -i build/insts_${data_size}.bin -k MLIR_AIE -t ${trace_size}
+	./$< -x build/final_trace_${data_size}.xclbin -i build/insts_${data_size}.bin -k MLIR_AIE -t ${trace_size} -v 2
 	${MLIR_AIE_DIR}/python/utils/parse_trace.py --input trace.txt --mlir build/aie_trace_${data_size}.mlir --output trace.json
 	${MLIR_AIE_DIR}/python/utils/get_trace_summary.py --input trace.json
 

@@ -27,14 +27,27 @@ using DATATYPE_IN2 = std::int32_t;
 // Initialize Input buffer 1
 void initialize_bufIn1(DATATYPE_IN1 *bufIn1, int SIZE)
 {
-  for (int i = 0; i < SIZE; i++)
-    bufIn1[i] = i + 1;
+  int chunks = 4;
+  for (int chunk = 0; chunk < chunks; chunk++)
+  {
+    for (int i = 0; i < SIZE / chunks; i++)
+    {
+      bufIn1[chunk * (SIZE / chunks) + i] = chunk + 1;
+    }
+  }
 }
 
 // Initialize Input buffer 2
-void initialize_bufIn2(DATATYPE_IN2 *bufIn2, int SIZE)
+void initialize_bufZeros(DATATYPE_IN2 *bufIn2, int SIZE)
 {
-  bufIn2[0] = 3; // scaleFactor
+  const int N = SIZE / 2;
+  for (int loop = 0; loop < 2; loop++)
+  {
+    for (int i = 0; i < N; i++)
+    {
+      bufIn2[loop * N + i] = 0;
+    }
+  }
 }
 
 // Initialize Output buffer
@@ -47,8 +60,14 @@ void initialize_bufOut(DATATYPE_OUT *bufOut, int SIZE)
 int verify(DATATYPE_IN1 *bufIn1, DATATYPE_IN2 *bufIn2,
            DATATYPE_OUT *bufOut, int SIZE, int verbosity)
 {
+  std::cout << std::dec;
   int errors = 0;
+  for (int row = 0; row < 2; row++)
+  {
+    std::cout << "out[row " << row << "] = " << bufOut[row] << std::endl;
+  }
 
+  /*
   for (int i = 0; i < SIZE; i++)
   {
     int32_t ref = bufIn1[i] + bufIn2[i];
@@ -56,7 +75,13 @@ int verify(DATATYPE_IN1 *bufIn1, DATATYPE_IN2 *bufIn2,
     if (test != ref)
     {
       if (verbosity >= 1)
-        std::cout << "Error in output " << test << " != " << ref << std::endl;
+      {
+        // reverse from display hex to dec
+        std::cout << std::dec;
+        std::cout << "Error " << "in1[" << i << "]=" << bufIn1[i] << " + in2[" << i
+                  << "]=" << bufIn2[i] << " => out[" << i << "]=" << test
+                  << ", expected " << ref << std::endl;
+      }
       errors++;
     }
     else
@@ -65,6 +90,7 @@ int verify(DATATYPE_IN1 *bufIn1, DATATYPE_IN2 *bufIn2,
         std::cout << "Correct output " << test << " == " << ref << std::endl;
     }
   }
+  */
   return errors;
 }
 
@@ -126,7 +152,7 @@ int xx_setup_and_run_aie(int IN1_VOLUME, int IN2_VOLUME, int OUT_VOLUME,
   uint32_t *bufCtrlPkts = bo_ctrlpkts.map<uint32_t *>();
 
   init_bufIn1(bufIn1, IN1_VOLUME);
-  init_bufIn1(bufIn2, IN1_VOLUME);
+  init_bufIn2(bufIn2, IN2_VOLUME);
   init_bufOut(bufOut, OUT_VOLUME); // <<< what size do I pass it?
 
   // char *bufTmp1 = bo_tmp1.map<char *>();
@@ -305,13 +331,13 @@ int main(int argc, const char *argv[])
 {
 
   constexpr int IN1_VOLUME = IN1_SIZE / sizeof(DATATYPE_IN1);
-  constexpr int IN2_VOLUME = IN1_SIZE / sizeof(DATATYPE_IN1);
-  constexpr int OUT_VOLUME = OUT_SIZE / sizeof(DATATYPE_OUT);
+  constexpr int IN2_VOLUME = IN1_SIZE * 2 / sizeof(DATATYPE_IN1);
+  constexpr int OUT_VOLUME = 2;
 
   args myargs = parse_args(argc, argv);
 
   int res = xx_setup_and_run_aie<DATATYPE_IN1, DATATYPE_IN2, DATATYPE_OUT,
-                                 initialize_bufIn1, initialize_bufIn2,
+                                 initialize_bufIn1, initialize_bufZeros,
                                  initialize_bufOut, verify>(
       IN1_VOLUME, IN2_VOLUME, OUT_VOLUME, myargs, true);
   return res;
