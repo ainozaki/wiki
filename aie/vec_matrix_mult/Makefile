@@ -39,11 +39,11 @@ endif
 
 build/aie_${data_size}.mlir: ${srcdir}/${aie_py_src}
 	mkdir -p ${@D}
-	python3 $< -d ${devicename} -i1s ${in1_size} -i2s ${in2_size} -os ${out_size} -bw ${int_bit_width} > $@
+	python3 $< > $@
 
 build/aie_trace_${data_size}.mlir: ${srcdir}/${aie_py_src}
 	mkdir -p ${@D}
-	python3 $< -d ${devicename} -i1s ${in1_size} -i2s ${in2_size} -os ${out_size} -bw ${int_bit_width}  -t ${trace_size} > $@
+	python3 $< -t ${trace_size} > $@
 
 build/final_${data_size}.xclbin: build/aie_${data_size}.mlir build/kernel.o
 	mkdir -p ${@D}

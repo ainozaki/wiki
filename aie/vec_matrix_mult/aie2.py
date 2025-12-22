@@ -31,24 +31,28 @@ def vec_matrix_mult(dev, trace_size):
     in1_size = N
     in2_size = N
     out_size = N
+    
+    n_rows = 2
+    n_cols = 1
 
     tensor_size = N
     num_sub_vectors = 4
     tile_size = tensor_size // num_sub_vectors
-
-    assert out_size == in1_size, "Output buffer size must match input buffer size."
-
+    tile_size_per_col = tile_size // n_cols
+    tile_size_per_core = tile_size_per_col // n_rows
+    
     vectorized = True
+
 
     @device(dev)
     def device_body():
         tensor_ty = np.ndarray[(tensor_size,), np.dtype[in1_dtype]]
-        tile_ty = np.ndarray[(tile_size,), np.dtype[in1_dtype]]
+        tile_ty_per_col = np.ndarray[(tile_size_per_col,), np.dtype[in1_dtype]]
+        tile_ty = np.ndarray[(tile_size_per_core,), np.dtype[in1_dtype]]
         ctrl_pkt_ty = np.ndarray[(1,), np.dtype[np.uint32]]
         trace_ty = np.ndarray[(trace_size,), np.dtype[np.uint8]]
 
         # AIE Core Function declarations
-        func_type = "vector" if vectorized else "scalar"
         add_vector = external_func(
             f"vector_vector_add",
             inputs=[tile_ty, tile_ty, tile_ty, np.int32],
@@ -56,36 +60,61 @@ def vec_matrix_mult(dev, trace_size):
 
         # Tile declarations
         ShimTile = tile(0, 0)
+        MemTile = tile(0, 1)
         CtrlShimTile = tile(1, 0)
-        ComputeTile2 = tile(0, 2)
-
+        ComputeTiles = [tile(0, 2 + i) for i in range(n_rows)]
+        
         # AIE-array data movement with object fifos
-        of_in = object_fifo("in", ShimTile, ComputeTile2, 2, tile_ty)
-        of_in2 = object_fifo("in2", ShimTile, ComputeTile2, 2, tile_ty)
-        of_out = object_fifo("out", ComputeTile2, ShimTile, 2, tile_ty)
+        of_in_shim_mem = object_fifo(
+            "in_shim_mem", ShimTile, MemTile, 2, tile_ty_per_col
+        )
+        of_in2_shim_mem = object_fifo(
+            "in2_shim_mem", ShimTile, MemTile, 2, tile_ty_per_col
+        )
+        of_out_mem_shim = object_fifo(
+            "out_mem_shim", MemTile, ShimTile, 2, tile_ty_per_col
+        )
+        of_in_list = []
+        of_in2_list = []
+        of_out_list = []
+        for r in range(n_rows):
+            of_in_list.append(
+                object_fifo(f"in_mem_ct{r}", MemTile, ComputeTiles[r], 2, tile_ty)
+            )
+            of_in2_list.append(
+                object_fifo(f"in2_mem_ct{r}", MemTile, ComputeTiles[r], 2, tile_ty)
+            )
+            of_out_list.append(
+                object_fifo(f"out_ct{r}_mem", ComputeTiles[r], MemTile, 2, tile_ty)
+            )
+        of_offsets = [tile_size_per_core * r for r in range(n_rows)]
+        object_fifo_link(of_in_shim_mem, of_in_list, [], of_offsets)
+        object_fifo_link(of_in2_shim_mem, of_in2_list, [], of_offsets)
+        object_fifo_link(of_out_list, of_out_mem_shim, of_offsets, [])
 
         # Set up compute tiles
         # Compute tile 2
-        @core(ComputeTile2, "kernel.o")
-        def core_body():
-            # Effective while(1)
-            for _ in range_(sys.maxsize):
-                # Number of sub-vector "tile" iterations
-                for _ in range_(num_sub_vectors):
-                    elem_out = of_out.acquire(ObjectFifoPort.Produce, 1)
-                    elem_in = of_in.acquire(ObjectFifoPort.Consume, 1)
-                    elem_in2 = of_in2.acquire(ObjectFifoPort.Consume, 1)
-                    add_vector(elem_in, elem_in2, elem_out, tile_size)
-                    of_in.release(ObjectFifoPort.Consume, 1)
-                    of_in2.release(ObjectFifoPort.Consume, 1)
-                    of_out.release(ObjectFifoPort.Produce, 1)
+        for r in range(n_rows):
+            @core(ComputeTiles[r], "kernel.o")
+            def core_body():
+                # Effective while(1)
+                for _ in range_(sys.maxsize):
+                    # Number of sub-vector "tile" iterations
+                    for _ in range_(num_sub_vectors):
+                        elem_out = of_out_list[r].acquire(ObjectFifoPort.Produce, 1)
+                        elem_in = of_in_list[r].acquire(ObjectFifoPort.Consume, 1)
+                        elem_in2 = of_in2_list[r].acquire(ObjectFifoPort.Consume, 1)
+                        add_vector(elem_in, elem_in2, elem_out, tile_size_per_core)
+                        of_in_list[r].release(ObjectFifoPort.Consume, 1)
+                        of_in2_list[r].release(ObjectFifoPort.Consume, 1)
+                        of_out_list[r].release(ObjectFifoPort.Produce, 1)
 
 
         # Set up a packet-switched flow from core to shim for tracing information
-        tiles_to_trace = [ComputeTile2, ComputeTile2]
+        tiles_to_trace = [ComputeTiles[r] for r in range(n_rows)]
         if trace_size > 0:
             trace_utils.configure_packet_tracing_flow(tiles_to_trace, ShimTile)
-            trace_utils.configure_packet_ctrl_flow([ComputeTile2], CtrlShimTile)
+            trace_utils.configure_packet_ctrl_flow([ComputeTiles[0]], CtrlShimTile)
 
         trace_size_int32 = trace_size // np.dtype(np.int32).itemsize
 
@@ -121,13 +150,13 @@ def vec_matrix_mult(dev, trace_size):
                 )
 
             in_task = shim_dma_single_bd_task(
-                of_in, A, sizes=[1, 1, 1, tensor_size], issue_token=True
+                of_in_shim_mem, A, sizes=[1, 1, 1, tensor_size], issue_token=True
             )
             in2_task = shim_dma_single_bd_task(
-                of_in2, B, sizes=[1, 1, 1, tensor_size], issue_token=True
+                of_in2_shim_mem, B, sizes=[1, 1, 1, tensor_size], issue_token=True
             )
             out_task = shim_dma_single_bd_task(
-                of_out, C, sizes=[1, 1, 1, tensor_size], issue_token=True
+                of_out_mem_shim, C, sizes=[1, 1, 1, tensor_size], issue_token=True
             )
 
             dma_start_task(in_task, in2_task, out_task)
@@ -135,34 +164,13 @@ def vec_matrix_mult(dev, trace_size):
 
             if trace_size > 0:
                 trace_utils.config_ctrl_pkts_aie(
-                    [ComputeTile2], CtrlShimTile, output_offset=trace_size, num_pkts=2
+                    [ComputeTiles[0]], CtrlShimTile, output_offset=trace_size, num_pkts=2
                 )
 
                 trace_utils.gen_trace_done_aie2(ShimTile)
 
 
-if len(sys.argv) < 5:
-    raise ValueError(
-        "[ERROR] Need at least 4 arguments (dev, in1_size, in2_size, out_size)"
-    )
-
-
 p = argparse.ArgumentParser()
-p.add_argument("-d", "--dev", required=True, dest="device", help="AIE Device")
-p.add_argument(
-    "-i1s", "--in1_size", required=True, dest="in1_size", help="Input 1 size"
-)
-p.add_argument(
-    "-i2s", "--in2_size", required=True, dest="in2_size", help="Input 2 size"
-)
-p.add_argument("-os", "--out_size", required=True, dest="out_size", help="Output size")
-p.add_argument(
-    "-bw",
-    "--int_bit_width",
-    required=True,
-    dest="int_bit_width",
-    help="Integer Bit Width",
-)
 p.add_argument(
     "-t",
     "--trace_size",
