@@ -1,0 +1,62 @@
+# LMCache
+
+LMCache: An Efficient KV Cache Layer for Enterprise-Scale LLM Inference [arXiv](https://arxiv.org/pdf/2510.09665)
+
+## 概要
+- 背景・目的
+  - LLMの推論ではKV cacheがdefacto optimization
+  - 従来、KV cacheはGPUメモリに配置
+    - Decode phaseの高速化が目的
+  - 近年、KV cacheをGPU外のメモリにおくトレンド
+  　- 1. クエリ間でのキャッシュ共有
+    - 2. Prefill-Decode分離
+      - Prefill担当のGPUで生成されたKV cacheをDecode担当のGPUに転送
+  - そもそもKV Cacheのサイズが大きくなり、GPUに乗らないケースが増加 → GPU外KV Cacheの重要性が増加
+  　- 大きいもので30TByteくらい(!?)
+  - 目的：メモリ外KV Cacheの効率的な実現
+  - Challenge:
+    - (1) 細切れI/O
+      - vLLMなどのLLMエンジンはKV Cacheをfixed-size page (16-64KB)に区切って保管、これらは非連続に保管される
+      - GPU外に転送するときは1Pageずつ転送することになり、細切れ
+        - 本来帯域をsaturateするには16MBとか欲しい
+    - (2) 頻繁に進化するLLMエンジンとのcompatibility
+      - LLMは4日程度で新しいモデルが発表され、それに対応してLLMエンジンも高頻度に更新
+      - GPUのメモリの使い方もモデルの変化に伴って変化
+    - (3) KV Cacheを管理できない
+- 提案
+　- LMCache: KV CacheをGPU外に保管、explicitな管理を可能とする
+   - LLMエンジン（vLLM, SGLangなど）とストレージの間のレイヤに位置する
+  - (1) KV Cache転送の工夫
+    - 複数pageを256バッチで転送
+      - 大きなbufferを確保して細切れpageをコピーする
+    - LLLMエンジンの計算と転送をoverlap
+      - CUDA streamで分ける, double buffering的な工夫
+    - minimum data copy
+      - まあまあ基本的なこと
+      　- 複数転送先があってもCPU側は1つだけ, 参照カウンタで管理
+      　- in-activeなfree pageを投機的に転送しておく
+  - (2) 推論エンジンにLMCacheを導入するためのInterface
+    - vLLM teamと議論してvLLM-nativeらしい
+  - (3) KV Cacheを操作するためのInterface
+  　- batched_admit, batched_evict, lookup, move, clear, pin, unpin, compress, decompress
+- 評価
+  - vLLMと組み合わせ評価、最大15倍のスループット向上
+  - シナリオ
+    - Single-node CPU Offloading
+    - Centralized Storage
+    - Prefill-Decode Separation
+  - 評価指標
+    - TTFT (Time To First Token): コールドスタート時間
+    - ITL (Inter Token Latency): 
+    - QPS (Queries Per Second): throughput
+  - LMCacheが負ける条件？
+    - Fig.15 ネットワーク越し
+    - Context Length大 or 帯域大になるとLMCacheの効果あり
+
+- 大事な技術ではあるが、KV Cacheを分散して(GPU外に)置くというのは既にありそうな気もする
+- 従来のGPUメモリに乗るようなKV Cacheでの評価がみたい
+  - 差がないもしくは管理分のoverhead程度がありそう
+- Minimum data copyとは言いつつも、一回全てのpageを大bufferにコピーしているような？
+  - コピーするoverhead < バッチ転送による帯域利用、なのか
+- Figure 1,3,4の横軸のweeks, daysは何
+- 結局どの世界もキャッシュが大事、KV CacheのCDNみたいな話が出てくるのか...
