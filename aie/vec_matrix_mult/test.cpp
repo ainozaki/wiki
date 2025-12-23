@@ -25,12 +25,13 @@ using int32_t = std::int32_t;
 using int32_t = std::int32_t;
 using int32_t = std::int32_t;
 
-const int VEC_B_PER_CORE = (1 << 9);
 const int N_CORE_ROW = 2;
-const int N_CORE_COL = 1;
-const int N_SUBVEC = 4;
+const int N_CORE_COL = 4;
+const int N_SUBVEC = 16;
 const int DEGREE = 4096;
 const int DEGREE_PER_SUBVEC = DEGREE / N_SUBVEC;
+const int VEC_B_PER_CORE = DEGREE / (N_CORE_ROW * N_CORE_COL);
+// const int VEC_B_PER_CORE = 2;
 
 void initialize_vec_A(int32_t *buff, int SIZE)
 {
@@ -81,7 +82,7 @@ void initialize_vec_B(int32_t *buff, int SIZE)
         int32_t *ptr = buff + idx_core * VEC_B_PER_CORE * DEGREE;
         for (int i = 0; i < DEGREE * VEC_B_PER_CORE; i++)
         {
-          ptr[i] = 100 + idx_core;
+          ptr[i] = idx_core;
         }
       }
     }

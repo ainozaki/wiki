@@ -53,6 +53,7 @@ extern "C"
 
     // Store result
     out_c[out_idx] += sum;
+    // out_c[0] = in_b[0];
     event1();
   }
 
