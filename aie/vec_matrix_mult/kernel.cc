@@ -31,21 +31,24 @@ extern "C"
     const int F = N / vec_factor;
 
     // Accumulate using vector operations
-    aie::vector<int32_t, vec_factor> partial_sum = aie::zeros<int32_t, vec_factor>();
+    aie::accum<acc64, vec_factor> partial_sum = aie::zeros<acc64, vec_factor>();
     AIE_PREPARE_FOR_PIPELINING
     AIE_LOOP_MIN_ITERATION_COUNT(16)
     for (int i = 0; i < F; i++)
     {
       aie::vector<int32_t, vec_factor> A0 = aie::load_v<vec_factor>(pA1);
       pA1 += vec_factor;
-      partial_sum = aie::add(partial_sum, A0);
+      aie::vector<int32_t, vec_factor> B0 = aie::load_v<vec_factor>(pB1);
+      aie::accum<acc64, vec_factor> AB = aie::mul(A0, B0);
+      partial_sum = aie::add(partial_sum, AB);
     }
 
     // Accumulate to int32
     int sum = 0;
+    aie::vector<int32_t, vec_factor> partial_sum_vec = aie::to_vector<int32_t>(partial_sum);
     for (int i = 0; i < vec_factor; i++)
     {
-      sum += partial_sum[i];
+      sum += partial_sum_vec[i];
     }
 
     // Store result

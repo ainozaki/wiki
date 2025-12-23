@@ -10,6 +10,7 @@
 
 #include "xrt_test_wrapper.h"
 #include <cstdint>
+#include <cassert>
 
 //*****************************************************************************
 // Modify this section to customize buffer datatypes, initialization functions,
@@ -20,45 +21,77 @@
 // ------------------------------------------------------
 // Configure this to match your buffer data type
 // ------------------------------------------------------
-using DATATYPE_IN1 = std::int32_t;
-using DATATYPE_OUT = std::int32_t;
-using DATATYPE_IN2 = std::int32_t;
+using int32_t = std::int32_t;
+using int32_t = std::int32_t;
+using int32_t = std::int32_t;
 
-// Initialize Input buffer 1
-void initialize_bufIn1(DATATYPE_IN1 *bufIn1, int SIZE)
+const int VEC_B_PER_CORE = 1;
+const int N_CORE_ROW = 2;
+const int N_CORE_COL = 1;
+const int N_SUBVEC = 4;
+const int DEGREE = 4096;
+const int DEGREE_PER_SUBVEC = DEGREE / N_SUBVEC;
+
+void initialize_vec_A(int32_t *buff, int SIZE)
 {
-  int chunks = 4;
-  for (int chunk = 0; chunk < chunks; chunk++)
+  assert(SIZE == DEGREE);
+  for (int i = 0; i < DEGREE; i++)
   {
-    for (int i = 0; i < SIZE / chunks; i++)
+    buff[i] = i;
+  }
+}
+
+void transform_input_matrix(int32_t *dst, int32_t *original)
+{
+  for (int subvec = 0; subvec < N_SUBVEC; subvec++)
+  {
+    int32_t *p_subvec = dst + subvec * N_CORE_COL * N_CORE_ROW * DEGREE_PER_SUBVEC * VEC_B_PER_CORE;
+    for (int col = 0; col < N_CORE_COL; col++)
     {
-      bufIn1[chunk * (SIZE / chunks) + i] = chunk + 1;
+      int32_t *p_col = p_subvec + col * N_CORE_ROW * DEGREE_PER_SUBVEC * VEC_B_PER_CORE;
+      for (int row = 0; row < N_CORE_ROW; row++)
+      {
+        int32_t *p_row = p_col + row * DEGREE_PER_SUBVEC * VEC_B_PER_CORE;
+        for (int i = 0; i < DEGREE_PER_SUBVEC; i++)
+        {
+          int orig_index = (col * N_CORE_ROW + row) * VEC_B_PER_CORE * DEGREE +
+                           subvec * DEGREE_PER_SUBVEC + i;
+          p_row[i] = original[orig_index];
+        }
+      }
     }
   }
 }
 
-// Initialize Input buffer 2
-void initialize_bufZeros(DATATYPE_IN2 *bufIn2, int SIZE)
+void initialize_vec_B(int32_t *buff, int SIZE)
 {
-  const int N = SIZE / 2;
-  for (int loop = 0; loop < 2; loop++)
+  assert(SIZE == N_CORE_COL * N_CORE_ROW * VEC_B_PER_CORE * DEGREE);
+
+  for (int col = 0; col < N_CORE_COL; col++)
   {
-    for (int i = 0; i < N; i++)
+    for (int row = 0; row < N_CORE_ROW; row++)
     {
-      bufIn2[loop * N + i] = 0;
+      for (int elem = 0; elem < VEC_B_PER_CORE; elem++)
+      {
+        const int idx_core = col * N_CORE_ROW + row;
+        int32_t *ptr = buff + idx_core * VEC_B_PER_CORE * DEGREE;
+        for (int i = 0; i < DEGREE; i++)
+        {
+          ptr[i] = idx_core;
+        }
+      }
     }
   }
 }
 
-// Initialize Output buffer
-void initialize_bufOut(DATATYPE_OUT *bufOut, int SIZE)
+void initialize_bufOut(int32_t *bufOut, int SIZE)
 {
   memset(bufOut, 0, SIZE);
 }
 
 // Functional correctness verifyer
-int verify(DATATYPE_IN1 *bufIn1, DATATYPE_IN2 *bufIn2,
-           DATATYPE_OUT *bufOut, int SIZE, int verbosity)
+int verify(int32_t *bufIn1, int32_t *bufIn2,
+           int32_t *bufOut, int SIZE, int verbosity)
 {
   std::cout << std::dec;
   int errors = 0;
@@ -67,30 +100,42 @@ int verify(DATATYPE_IN1 *bufIn1, DATATYPE_IN2 *bufIn2,
     std::cout << "out[row " << row << "] = " << bufOut[row] << std::endl;
   }
 
-  /*
-  for (int i = 0; i < SIZE; i++)
+  for (int col = 0; col < N_CORE_COL; col++)
   {
-    int32_t ref = bufIn1[i] + bufIn2[i];
-    int32_t test = bufOut[i];
-    if (test != ref)
+    int32_t *p_col = bufIn2 + col * N_CORE_ROW * VEC_B_PER_CORE * DEGREE;
+    for (int row = 0; row < N_CORE_ROW; row++)
     {
-      if (verbosity >= 1)
+      int32_t *p_row = p_col + row * VEC_B_PER_CORE * DEGREE;
+      for (int elem = 0; elem < VEC_B_PER_CORE; elem++)
       {
-        // reverse from display hex to dec
-        std::cout << std::dec;
-        std::cout << "Error " << "in1[" << i << "]=" << bufIn1[i] << " + in2[" << i
-                  << "]=" << bufIn2[i] << " => out[" << i << "]=" << test
-                  << ", expected " << ref << std::endl;
+        int32_t *p_elem = p_row + elem * DEGREE;
+        int sum = 0;
+        for (int i = 0; i < DEGREE; i++)
+        {
+          sum += (p_elem[i] * bufIn1[i]);
+        }
+
+        // Check
+        if (bufOut[row + col * N_CORE_ROW + elem] != sum)
+        {
+          if (verbosity >= 1)
+          {
+            std::cout << "Error in out[" << row + col * N_CORE_ROW + elem << "]="
+                      << bufOut[row + col * N_CORE_ROW + elem]
+                      << ", expected " << sum << std::endl;
+          }
+          errors++;
+        }
+        else
+        {
+          if (verbosity >= 1)
+            std::cout << "Correct output " << bufOut[row + col * N_CORE_ROW + elem]
+                      << " == " << sum << std::endl;
+        }
       }
-      errors++;
-    }
-    else
-    {
-      if (verbosity >= 1)
-        std::cout << "Correct output " << test << " == " << ref << std::endl;
     }
   }
-  */
+
   return errors;
 }
 
@@ -103,19 +148,25 @@ int xx_setup_and_run_aie(int IN1_VOLUME, int IN2_VOLUME, int OUT_VOLUME,
 
   srand(time(NULL));
 
+  // ==============================================
   // Load instruction sequence
+  // ==============================================
   std::vector<uint32_t> instr_v = test_utils::load_instr_binary(myargs.instr);
   if (myargs.verbosity >= 1)
     std::cout << "Sequence instr count: " << instr_v.size() << "\n";
 
+  // ==============================================
   // Start the XRT context and load the kernel
+  // ==============================================
   xrt::device device;
   xrt::kernel kernel;
 
   test_utils::init_xrt_load_kernel(device, kernel, myargs.verbosity,
                                    myargs.xclbin, myargs.kernel);
 
+  // ==============================================
   // set up the buffer objects
+  // ==============================================
   auto bo_instr = xrt::bo(device, instr_v.size() * sizeof(int),
                           XCL_BO_FLAGS_CACHEABLE, kernel.group_id(1));
   auto bo_in1 = xrt::bo(device, IN1_VOLUME * sizeof(T1), XRT_BO_FLAGS_HOST_ONLY,
@@ -144,19 +195,20 @@ int xx_setup_and_run_aie(int IN1_VOLUME, int IN2_VOLUME, int OUT_VOLUME,
   void *bufInstr = bo_instr.map<void *>();
   memcpy(bufInstr, instr_v.data(), instr_v.size() * sizeof(int));
 
-  // Initialize buffer objects
+  // ==============================================
+  // Initialize inputs
+  // ==============================================
   T1 *bufIn1 = bo_in1.map<T1 *>();
   T1 *bufIn2 = bo_in2.map<T1 *>();
   T3 *bufOut = bo_out.map<T3 *>();
+  T1 *bufIn2_original = new T1[IN2_VOLUME];
   char *bufTrace = bo_trace.map<char *>();
   uint32_t *bufCtrlPkts = bo_ctrlpkts.map<uint32_t *>();
 
   init_bufIn1(bufIn1, IN1_VOLUME);
-  init_bufIn2(bufIn2, IN2_VOLUME);
-  init_bufOut(bufOut, OUT_VOLUME); // <<< what size do I pass it?
-
-  // char *bufTmp1 = bo_tmp1.map<char *>();
-  // memset(bufTmp1, 0, 4);
+  init_bufIn2(bufIn2_original, IN2_VOLUME);
+  init_bufOut(bufOut, OUT_VOLUME);
+  transform_input_matrix(bufIn2, bufIn2_original);
 
   if (myargs.trace_size > 0)
     memset(bufTrace, 0, myargs.trace_size);
@@ -178,7 +230,6 @@ int xx_setup_and_run_aie(int IN1_VOLUME, int IN2_VOLUME, int OUT_VOLUME,
   bo_in1.sync(XCL_BO_SYNC_BO_TO_DEVICE);
   bo_in2.sync(XCL_BO_SYNC_BO_TO_DEVICE);
   bo_out.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-  // bo_tmp1.sync(XCL_BO_SYNC_BO_TO_DEVICE);
   if (myargs.trace_size > 0)
   {
     bo_trace.sync(XCL_BO_SYNC_BO_TO_DEVICE);
@@ -186,9 +237,9 @@ int xx_setup_and_run_aie(int IN1_VOLUME, int IN2_VOLUME, int OUT_VOLUME,
       bo_ctrlpkts.sync(XCL_BO_SYNC_BO_TO_DEVICE);
   }
 
-  // ------------------------------------------------------
+  // ==============================================
   // Initialize run configs
-  // ------------------------------------------------------
+  // ==============================================
   unsigned num_iter = myargs.n_iterations + myargs.n_warmup_iterations;
   float npu_time_total = 0;
   float npu_time_min = 9999999;
@@ -196,16 +247,18 @@ int xx_setup_and_run_aie(int IN1_VOLUME, int IN2_VOLUME, int OUT_VOLUME,
 
   int errors = 0;
 
-  // ------------------------------------------------------
+  // ==============================================
   // Main run loop
-  // ------------------------------------------------------
+  // ==============================================
   for (unsigned iter = 0; iter < num_iter; iter++)
   {
 
     if (myargs.verbosity >= 1)
       std::cout << "Running Kernel.\n";
 
+    // ==============================================
     // Run kernel
+    // ==============================================
     if (myargs.verbosity >= 1)
       std::cout << "Running Kernel.\n";
     auto start = std::chrono::high_resolution_clock::now();
@@ -222,7 +275,9 @@ int xx_setup_and_run_aie(int IN1_VOLUME, int IN2_VOLUME, int OUT_VOLUME,
       /* Warmup iterations do not count towards average runtime. */
       continue;
 
-    // Copy output results and verify they are correct
+    // ==============================================
+    // Verify results
+    // ==============================================
     if (myargs.do_verify)
     {
       if (myargs.verbosity >= 1)
@@ -232,7 +287,7 @@ int xx_setup_and_run_aie(int IN1_VOLUME, int IN2_VOLUME, int OUT_VOLUME,
       auto vstart = std::chrono::system_clock::now();
 
       errors +=
-          verify_results(bufIn1, bufIn2, bufOut, IN1_VOLUME, myargs.verbosity);
+          verify_results(bufIn1, bufIn2_original, bufOut, IN1_VOLUME, myargs.verbosity);
 
       auto vstop = std::chrono::system_clock::now();
       float vtime =
@@ -247,14 +302,18 @@ int xx_setup_and_run_aie(int IN1_VOLUME, int IN2_VOLUME, int OUT_VOLUME,
         std::cout << "WARNING: results not verified." << std::endl;
     }
 
-    // Write trace values if trace_size > 0 and first iteration
+    // ==============================================
+    // Output trace
+    // ==============================================
     if (myargs.trace_size > 0 && iter == myargs.n_warmup_iterations)
     {
       test_utils::write_out_trace(((char *)bufTrace), myargs.trace_size,
                                   myargs.trace_file);
     }
 
-    // Write out control packet outputs
+    // ==============================================
+    // Output control packet
+    // ==============================================
     if (enable_ctrl_pkts)
     {
       uint32_t *ctrl_pkt_out =
@@ -283,9 +342,9 @@ int xx_setup_and_run_aie(int IN1_VOLUME, int IN2_VOLUME, int OUT_VOLUME,
     npu_time_max = (npu_time > npu_time_max) ? npu_time : npu_time_max;
   }
 
-  // ------------------------------------------------------
+  // ==============================================
   // Print verification and timing results
-  // ------------------------------------------------------
+  // ==============================================
 
   // TODO - Mac count to guide gflops
   float macs = 0;
@@ -323,21 +382,17 @@ int xx_setup_and_run_aie(int IN1_VOLUME, int IN2_VOLUME, int OUT_VOLUME,
   }
 }
 
-//*****************************************************************************
-// Should not need to modify below section
-//*****************************************************************************
-
 int main(int argc, const char *argv[])
 {
 
-  constexpr int IN1_VOLUME = IN1_SIZE / sizeof(DATATYPE_IN1);
-  constexpr int IN2_VOLUME = IN1_SIZE * 2 / sizeof(DATATYPE_IN1);
-  constexpr int OUT_VOLUME = 2;
+  constexpr int IN1_VOLUME = DEGREE;
+  constexpr int IN2_VOLUME = DEGREE * VEC_B_PER_CORE * N_CORE_ROW * N_CORE_COL;
+  constexpr int OUT_VOLUME = VEC_B_PER_CORE * N_CORE_ROW * N_CORE_COL;
 
   args myargs = parse_args(argc, argv);
 
-  int res = xx_setup_and_run_aie<DATATYPE_IN1, DATATYPE_IN2, DATATYPE_OUT,
-                                 initialize_bufIn1, initialize_bufZeros,
+  int res = xx_setup_and_run_aie<int32_t, int32_t, int32_t,
+                                 initialize_vec_A, initialize_vec_B,
                                  initialize_bufOut, verify>(
       IN1_VOLUME, IN2_VOLUME, OUT_VOLUME, myargs, true);
   return res;
