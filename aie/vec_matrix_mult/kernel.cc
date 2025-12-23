@@ -19,7 +19,7 @@
 extern "C"
 {
   void vector_accum(int32_t *in_a, int32_t *in_b, int32_t *out_c,
-                    int32_t N)
+                    int32_t N, int32_t out_idx)
   {
     event0();
 
@@ -52,7 +52,7 @@ extern "C"
     }
 
     // Store result
-    out_c[0] += sum;
+    out_c[out_idx] += sum;
     event1();
   }
 

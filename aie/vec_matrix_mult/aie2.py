@@ -13,6 +13,7 @@ from aie.dialects.aie import *
 from aie.dialects.aiex import *
 from aie.extras.context import mlir_mod_ctx
 from aie.helpers.dialects.ext.scf import _for as range_
+from aie.helpers.util import np_dtype_to_mlir_type
 
 import aie.utils.trace as trace_utils
 from aie.utils.trace import PortEvent
@@ -23,37 +24,33 @@ dev = AIEDevice.npu1
 N = 4096
 N_bytes = 4096 * 4
 
+VEC_B_PER_CORE = (1 << 9)
+N_CORE_ROW = 2
+N_CORE_COL = 1
+N_SUBVEC = 4
+DEGREE = 4096
+DEGREE_PER_SUBVEC = DEGREE // N_SUBVEC
+
 def vec_matrix_mult(dev, trace_size):
 
     in1_dtype = np.int32
-    out_dtype = np.int32
     in2_dtype = np.int32
+    out_dtype = np.int32
 
     n_rows = 2
     n_cols = 1
 
-    k_per_core = 1
-
-    tensor_size = N
-    matrix_size = N * n_rows
-    num_sub_vectors = 4
-
-    tiled_tensor_size = tensor_size // num_sub_vectors
-    tiled_matrix_size = tiled_tensor_size * n_rows
-
-    output_per_core = k_per_core
-    output_size = n_rows * output_per_core
     
-    vectorized = True
-
-
+    OUTPUT_PER_COL = N_CORE_ROW * VEC_B_PER_CORE
+    
+    
     @device(dev)
     def device_body():
-        tile_ty = np.ndarray[(tiled_tensor_size,), np.dtype[in1_dtype]]    
-        tile_matrix_ty = np.ndarray[(tiled_matrix_size,), np.dtype[in2_dtype]]    
+        tile_ty = np.ndarray[(DEGREE_PER_SUBVEC,), np.dtype[in1_dtype]]    
+        tile_matrix_ty = np.ndarray[(DEGREE_PER_SUBVEC * N_CORE_ROW,), np.dtype[in2_dtype]]    
         
-        output_ty = np.ndarray[(output_size,), np.dtype[out_dtype]]
-        output_ty_per_core = np.ndarray[(k_per_core,), np.dtype[out_dtype]]
+        output_ty = np.ndarray[(OUTPUT_PER_COL,), np.dtype[out_dtype]]
+        output_ty_per_core = np.ndarray[(VEC_B_PER_CORE,), np.dtype[out_dtype]]
 
         ctrl_pkt_ty = np.ndarray[(1,), np.dtype[np.uint32]]
         trace_ty = np.ndarray[(trace_size,), np.dtype[np.uint8]]
@@ -67,7 +64,7 @@ def vec_matrix_mult(dev, trace_size):
         ## void vector_accum(int32_t *in_a, int32_t *in_b, int32_t *out_c, int32_t N)
         accum_func = external_func(
             f"vector_accum",
-            inputs=[tile_ty, tile_ty, output_ty_per_core, np.int32],
+            inputs=[tile_ty, tile_ty, output_ty_per_core, np.int32, np.int32],
         )
 
         ## void store_buff(int32_t *buff, int32_t offset, int32_t value)
@@ -113,7 +110,7 @@ def vec_matrix_mult(dev, trace_size):
             of_in2_list.append(
                 object_fifo(f"in2_mem_ct{r}", MemTile, ComputeTiles[r], 2, tile_ty)
             )
-        object_fifo_link(of_in2_shim_mem, of_in2_list, [], [tiled_tensor_size * r for r in range(n_rows)])
+        object_fifo_link(of_in2_shim_mem, of_in2_list, [], [DEGREE_PER_SUBVEC * r for r in range(n_rows)])
         
         # out
         of_out_list = []
@@ -121,7 +118,7 @@ def vec_matrix_mult(dev, trace_size):
             of_out_list.append(
                 object_fifo(f"out_ct{r}_mem", ComputeTiles[r], MemTile, 2, output_ty_per_core)
             )
-        object_fifo_link(of_out_list, of_out_mem_shim, [k_per_core * r for r in range(n_rows)], [])
+        object_fifo_link(of_out_list, of_out_mem_shim, [VEC_B_PER_CORE * r for r in range(n_rows)], [])
 
         # ==============================================
         # Buff declarations
@@ -140,15 +137,18 @@ def vec_matrix_mult(dev, trace_size):
                 # Effective while(1)
                 store_buff_func(buffs[r], 0, 0)
                 for _ in range_(sys.maxsize):
-                    # Number of sub-vector "tile" iterations
                     elem_out = of_out_list[r].acquire(ObjectFifoPort.Produce, 1)
-                    zeros_func(elem_out, 1)
-                    for loop in range(num_sub_vectors):
+                    zeros_func(elem_out, VEC_B_PER_CORE)
+                    # sub-vector loop
+                    for _ in range_(N_SUBVEC):
                         elem_in = of_in_broadcast.acquire(ObjectFifoPort.Consume, 1)
-                        elem_in2 = of_in2_list[r].acquire(ObjectFifoPort.Consume, 1)
-                        accum_func(elem_in, elem_in2, elem_out, tiled_tensor_size)
+                        # Vector B loop
+                        for vec_b in range_(VEC_B_PER_CORE):
+                            elem_in2 = of_in2_list[r].acquire(ObjectFifoPort.Consume, 1)
+                            vec_b_i32 = arith.index_cast(vec_b, to=np_dtype_to_mlir_type(np.int32))
+                            accum_func(elem_in, elem_in2, elem_out, DEGREE_PER_SUBVEC, vec_b_i32)
+                            of_in2_list[r].release(ObjectFifoPort.Consume, 1)
                         of_in_broadcast.release(ObjectFifoPort.Consume, 1)
-                        of_in2_list[r].release(ObjectFifoPort.Consume, 1)
                     of_out_list[r].release(ObjectFifoPort.Produce, 1)
 
 
@@ -166,8 +166,8 @@ def vec_matrix_mult(dev, trace_size):
         # ==============================================
         # Runtime Sequence
         # ==============================================
-        tensor_ty = np.ndarray[(tensor_size,), np.dtype[in1_dtype]]
-        matrix_ty = np.ndarray[(matrix_size,), np.dtype[in2_dtype]]
+        tensor_ty = np.ndarray[(DEGREE,), np.dtype[in1_dtype]]
+        matrix_ty = np.ndarray[(DEGREE * VEC_B_PER_CORE * N_CORE_ROW * N_CORE_COL,), np.dtype[in2_dtype]]
         @runtime_sequence(tensor_ty, matrix_ty, output_ty)
         def sequence(A, B, C):
             if trace_size > 0:
@@ -198,13 +198,13 @@ def vec_matrix_mult(dev, trace_size):
                 )
 
             in_task = shim_dma_single_bd_task(
-                of_in_shim_mem, A, sizes=[1, 1, 1, tensor_size], issue_token=True
+                of_in_shim_mem, A, sizes=[1, 1, 1, DEGREE], issue_token=True
             )
             in2_task = shim_dma_single_bd_task(
-                of_in2_shim_mem, B, sizes=[1, 1, 1, matrix_size], issue_token=True
+                of_in2_shim_mem, B, sizes=[1, 1, 1, DEGREE * VEC_B_PER_CORE * N_CORE_ROW], issue_token=True
             )
             out_task = shim_dma_single_bd_task(
-                of_out_mem_shim, C, sizes=[1, 1, 1, output_size], issue_token=True
+                of_out_mem_shim, C, sizes=[1, 1, 1, OUTPUT_PER_COL], issue_token=True
             )
 
             dma_start_task(in_task, in2_task, out_task)

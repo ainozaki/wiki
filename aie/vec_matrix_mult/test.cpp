@@ -25,7 +25,7 @@ using int32_t = std::int32_t;
 using int32_t = std::int32_t;
 using int32_t = std::int32_t;
 
-const int VEC_B_PER_CORE = 1;
+const int VEC_B_PER_CORE = (1 << 9);
 const int N_CORE_ROW = 2;
 const int N_CORE_COL = 1;
 const int N_SUBVEC = 4;
@@ -37,7 +37,7 @@ void initialize_vec_A(int32_t *buff, int SIZE)
   assert(SIZE == DEGREE);
   for (int i = 0; i < DEGREE; i++)
   {
-    buff[i] = i;
+    buff[i] = 11;
   }
 }
 
@@ -45,18 +45,22 @@ void transform_input_matrix(int32_t *dst, int32_t *original)
 {
   for (int subvec = 0; subvec < N_SUBVEC; subvec++)
   {
-    int32_t *p_subvec = dst + subvec * N_CORE_COL * N_CORE_ROW * DEGREE_PER_SUBVEC * VEC_B_PER_CORE;
-    for (int col = 0; col < N_CORE_COL; col++)
+    int32_t *p_subvec = dst + subvec * VEC_B_PER_CORE * N_CORE_COL * N_CORE_ROW * DEGREE_PER_SUBVEC;
+    for (int elem = 0; elem < VEC_B_PER_CORE; elem++)
     {
-      int32_t *p_col = p_subvec + col * N_CORE_ROW * DEGREE_PER_SUBVEC * VEC_B_PER_CORE;
-      for (int row = 0; row < N_CORE_ROW; row++)
+      int32_t *p_elem = p_subvec + elem * N_CORE_COL * N_CORE_ROW * DEGREE_PER_SUBVEC;
+      for (int col = 0; col < N_CORE_COL; col++)
       {
-        int32_t *p_row = p_col + row * DEGREE_PER_SUBVEC * VEC_B_PER_CORE;
-        for (int i = 0; i < DEGREE_PER_SUBVEC; i++)
+        int32_t *p_col = p_elem + col * N_CORE_ROW * DEGREE_PER_SUBVEC;
+        for (int row = 0; row < N_CORE_ROW; row++)
         {
-          int orig_index = (col * N_CORE_ROW + row) * VEC_B_PER_CORE * DEGREE +
-                           subvec * DEGREE_PER_SUBVEC + i;
-          p_row[i] = original[orig_index];
+          int32_t *p_row = p_col + row * DEGREE_PER_SUBVEC;
+          for (int i = 0; i < DEGREE_PER_SUBVEC; i++)
+          {
+            int orig_index = (col * N_CORE_ROW + row) * VEC_B_PER_CORE * DEGREE + elem * DEGREE +
+                             subvec * DEGREE_PER_SUBVEC + i;
+            p_row[i] = original[orig_index];
+          }
         }
       }
     }
@@ -75,9 +79,9 @@ void initialize_vec_B(int32_t *buff, int SIZE)
       {
         const int idx_core = col * N_CORE_ROW + row;
         int32_t *ptr = buff + idx_core * VEC_B_PER_CORE * DEGREE;
-        for (int i = 0; i < DEGREE; i++)
+        for (int i = 0; i < DEGREE * VEC_B_PER_CORE; i++)
         {
-          ptr[i] = idx_core;
+          ptr[i] = 100 + idx_core;
         }
       }
     }
@@ -95,11 +99,6 @@ int verify(int32_t *bufIn1, int32_t *bufIn2,
 {
   std::cout << std::dec;
   int errors = 0;
-  for (int row = 0; row < 2; row++)
-  {
-    std::cout << "out[row " << row << "] = " << bufOut[row] << std::endl;
-  }
-
   for (int col = 0; col < N_CORE_COL; col++)
   {
     int32_t *p_col = bufIn2 + col * N_CORE_ROW * VEC_B_PER_CORE * DEGREE;
@@ -116,12 +115,13 @@ int verify(int32_t *bufIn1, int32_t *bufIn2,
         }
 
         // Check
-        if (bufOut[row + col * N_CORE_ROW + elem] != sum)
+        const int idx_buff = col * N_CORE_ROW * VEC_B_PER_CORE + row * VEC_B_PER_CORE + elem;
+        if (bufOut[idx_buff] != sum)
         {
           if (verbosity >= 1)
           {
-            std::cout << "Error in out[" << row + col * N_CORE_ROW + elem << "]="
-                      << bufOut[row + col * N_CORE_ROW + elem]
+            std::cout << "- Error in out[" << idx_buff << "]="
+                      << bufOut[idx_buff]
                       << ", expected " << sum << std::endl;
           }
           errors++;
@@ -129,7 +129,7 @@ int verify(int32_t *bufIn1, int32_t *bufIn2,
         else
         {
           if (verbosity >= 1)
-            std::cout << "Correct output " << bufOut[row + col * N_CORE_ROW + elem]
+            std::cout << "- Correct output " << bufOut[idx_buff]
                       << " == " << sum << std::endl;
         }
       }
