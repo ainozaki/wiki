@@ -75,7 +75,7 @@ ${targetname}_${data_size}.exe: ${srcdir}/test.cpp
 	cp _build/${targetname}_${data_size} $@ 
 
 run: ${targetname}_${data_size}.exe build/final_${data_size}.xclbin build/insts_${data_size}.bin 
-	./$< -x build/final_${data_size}.xclbin -i build/insts_${data_size}.bin -k MLIR_AIE
+	./$< -x build/final_${data_size}.xclbin -i build/insts_${data_size}.bin -k MLIR_AIE --iters 100
 
 trace: ${targetname}_${data_size}.exe build/final_trace_${data_size}.xclbin build/insts_${data_size}.bin 
 	./$< -x build/final_trace_${data_size}.xclbin -i build/insts_${data_size}.bin -k MLIR_AIE -t ${trace_size} -v 2
